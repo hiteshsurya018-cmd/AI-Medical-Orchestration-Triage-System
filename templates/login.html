@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>DOCQ | {{ login_config.title }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@700&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='docq.css') }}">
+</head>
+<body class="portal-body">
+    {% set role_tint = 'patient' if login_kind == 'patient' else 'doctor' if login_kind == 'doctor' else 'clinic' %}
+    <main class="portal-shell login-shell-modern">
+        <section class="portal-hero-panel login-hero-panel">
+            <div class="portal-copy">
+                <span class="portal-label">{{ login_config.eyebrow }}</span>
+                <h1>
+                    {% if login_kind == 'patient' %}
+                    Continue with remembered patient context
+                    {% elif login_kind == 'doctor' %}
+                    Open the live clinical review workspace
+                    {% else %}
+                    Enter the clinic operations workspace
+                    {% endif %}
+                </h1>
+                <p class="portal-subtext">
+                    {{ login_config.description }}
+                </p>
+            </div>
+            <div class="portal-toolbar">
+                <button type="button" class="portal-btn ghost compact" data-theme-toggle>Toggle Theme</button>
+                <a href="{{ url_for('docs') }}" class="portal-btn ghost compact">Docs</a>
+            </div>
+
+            <div class="feature-stack-modern">
+                {% if login_kind == 'patient' %}
+                <div class="feature-row">
+                    <i data-lucide="check-circle-2" aria-hidden="true"></i>
+                    <div>
+                        <strong>Reuse stored context</strong>
+                        <p>DOCQ can load your age, chronic conditions, allergies, and prior visit continuity.</p>
+                    </div>
+                </div>
+                <div class="feature-row">
+                    <i data-lucide="check-circle-2" aria-hidden="true"></i>
+                    <div>
+                        <strong>Shorter triage conversations</strong>
+                        <p>Only missing intake details are requested before routing into risk and scheduling stages.</p>
+                    </div>
+                </div>
+                <div class="feature-row">
+                    <i data-lucide="check-circle-2" aria-hidden="true"></i>
+                    <div>
+                        <strong>Safer continuity of care</strong>
+                        <p>DOCQ preserves prior care relationships and recommended specialist routing wherever possible.</p>
+                    </div>
+                </div>
+                <p class="privacy-note">Privacy note: remembered information is used only to support triage continuity and booking decisions inside DOCQ.</p>
+                {% elif login_kind == 'doctor' %}
+                <div class="feature-row">
+                    <i data-lucide="check-circle-2" aria-hidden="true"></i>
+                    <div>
+                        <strong>Open routed cases</strong>
+                        <p>Review cases already enriched with policy decisions, care summaries, and queue context.</p>
+                    </div>
+                </div>
+                <div class="feature-row">
+                    <i data-lucide="check-circle-2" aria-hidden="true"></i>
+                    <div>
+                        <strong>Acknowledge live appointments</strong>
+                        <p>Move cases from DOCQ review into doctor-owned scheduling without leaving the inbox.</p>
+                    </div>
+                </div>
+                <div class="feature-row">
+                    <i data-lucide="check-circle-2" aria-hidden="true"></i>
+                    <div>
+                        <strong>Inspect triage rationale</strong>
+                        <p>Understand the risk summary, continuity hints, and quick-care signals before you respond.</p>
+                    </div>
+                </div>
+                {% else %}
+                <div class="feature-row">
+                    <i data-lucide="check-circle-2" aria-hidden="true"></i>
+                    <div>
+                        <strong>Coordinate bookings</strong>
+                        <p>Monitor queues, assign slots, and manage delivery workflows from the clinic control surface.</p>
+                    </div>
+                </div>
+                <div class="feature-row">
+                    <i data-lucide="check-circle-2" aria-hidden="true"></i>
+                    <div>
+                        <strong>Observe operational pressure</strong>
+                        <p>Track escalation load, review backlogs, automation health, and workflow continuity live.</p>
+                    </div>
+                </div>
+                <div class="feature-row">
+                    <i data-lucide="check-circle-2" aria-hidden="true"></i>
+                    <div>
+                        <strong>Keep staff in control</strong>
+                        <p>DOCQ recommendations stay visible, auditable, and easy to verify before scheduling actions.</p>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </section>
+
+        <aside class="portal-quick-panel login-form-panel">
+            <div class="portal-panel-copy">
+                <span class="portal-label">DOCQ {{ 'PATIENT' if login_kind == 'patient' else 'DOCTOR' if login_kind == 'doctor' else 'CLINIC' }} ACCESS</span>
+                <h2>{{ 'Patient Login' if login_kind == 'patient' else login_config.title }}</h2>
+                <p>{{ 'Secure access to remembered care context and conversational triage.' if login_kind == 'patient' else 'Continue into the DOCQ workspace for your role.' }}</p>
+            </div>
+            <div class="login-readiness-note">
+                <strong>Enterprise-ready access.</strong>
+                <p>Role-scoped authentication, tenant-aware routing, and replay-safe audit lineage remain active across every session.</p>
+            </div>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                <div class="status-banner {{ 'error' if category == 'error' else 'success' }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+            {% endwith %}
+
+            <form method="post" class="auth-form">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+
+                <div class="field-group">
+                    <label for="email">Email address</label>
+                    <input id="email" type="email" name="email" value="{{ remembered_email if login_kind == 'patient' else '' }}" placeholder="{{ 'patient@clinic.com' if login_kind == 'patient' else 'name@clinic.com' }}" required autocomplete="email">
+                    <p class="field-meta">Use the email linked to your DOCQ account.</p>
+                </div>
+
+                <div class="field-group">
+                    <label for="password">Password</label>
+                    <div class="password-field">
+                        <input id="password" type="password" name="password" placeholder="Enter your password" required autocomplete="current-password">
+                        <button type="button" class="password-toggle" id="password-toggle" aria-label="Show password">
+                            <i data-lucide="eye" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                    <p class="field-meta">Passwords are never shown in DOCQ once submitted.</p>
+                </div>
+
+                <label class="checkbox-row" for="remember-session">
+                    <input id="remember-session" type="checkbox" name="remember_session" value="yes">
+                    <span>Remember me for 30 days</span>
+                </label>
+
+                <button type="submit" class="portal-btn primary {{ role_tint }}">Login</button>
+
+                {% if login_kind == 'patient' %}
+                <div class="patient-auth-assist">
+                    <a href="{{ url_for('patient_signup') }}" class="portal-btn secondary patient patient-auth-cta">New user? Sign up</a>
+                </div>
+                <div class="auth-link-stack">
+                    <a href="{{ url_for('patient_forgot_password') }}" class="micro-link">Forgot password?</a>
+                </div>
+                {% else %}
+                <a href="{{ url_for('access_portal') }}" class="micro-link">Forgot password?</a>
+                {% endif %}
+
+                <div class="auth-divider"><span>or</span></div>
+
+                <a href="{{ url_for('access_portal') }}" class="portal-btn ghost">Back to access portal</a>
+            </form>
+        </aside>
+    </main>
+
+    <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <script>
+        window.lucide?.createIcons();
+        const passwordField = document.getElementById("password");
+        const passwordToggle = document.getElementById("password-toggle");
+        if (passwordField && passwordToggle) {
+            passwordToggle.addEventListener("click", () => {
+                const isHidden = passwordField.type === "password";
+                passwordField.type = isHidden ? "text" : "password";
+                passwordToggle.setAttribute("aria-label", isHidden ? "Hide password" : "Show password");
+                passwordToggle.innerHTML = isHidden
+                    ? '<i data-lucide="eye-off" aria-hidden="true"></i>'
+                    : '<i data-lucide="eye" aria-hidden="true"></i>';
+                window.lucide?.createIcons();
+            });
+        }
+    </script>
+    <script src="{{ url_for('static', filename='enterprise.js') }}"></script>
+</body>
+</html>

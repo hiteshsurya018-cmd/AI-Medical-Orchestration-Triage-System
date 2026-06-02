@@ -1,0 +1,13 @@
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite
+models/
+alembic/versions/__pycache__/
+tests/
+.git/
+*.log

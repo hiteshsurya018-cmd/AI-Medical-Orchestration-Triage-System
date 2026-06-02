@@ -1,0 +1,1211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>DOCQ | Operations Command Center</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='docq.css') }}">
+</head>
+<body class="dashboard-body ops-body">
+    {% set wm = metrics.workflow_metrics %}
+    {% set oi = metrics.operational_intelligence %}
+    {% set ops = metrics.operations %}
+    {% set total_routes = wm.autonomous_bookings + wm.human_review_queue + wm.emergency_escalations %}
+    {% set autonomous_rate = ((wm.autonomous_bookings / total_routes) * 100) | round(1) if total_routes else 0 %}
+    <div class="dashboard-shell ops-shell" id="workflow-console-root" data-workflow-id="{{ metrics.selected_workflow_id }}" data-compare-workflow-id="{{ metrics.compare_workflow_id }}" data-tenant-key="{{ current_user.tenant_key or 'default-clinic' }}">
+        <header class="console-topbar">
+            <div class="console-brand">
+                <div class="brand-mark">
+                    <span class="brand-dot live"></span>
+                    <span>DOCQ Operations</span>
+                </div>
+                <div>
+                    <span class="eyebrow">Hospital Operations Command Center</span>
+                    <h1>Appointments, departments, doctors, and emergency queues</h1>
+                    <p class="dashboard-subtitle">Signed in as {{ current_user.name }} ({{ current_user.role }}). Manage patient flow, appointment governance, doctor availability, and auditable operational actions.</p>
+                </div>
+            </div>
+            <div class="console-statusbar">
+                <div class="status-chip status-{{ oi.incident_state.level }}">
+                    <span class="status-dot"></span>
+                    <span>{{ oi.incident_state.title }}</span>
+                </div>
+                <div class="status-chip status-{{ 'healthy' if metrics.replay_integrity and metrics.replay_integrity.replay_match else 'degraded' if metrics.replay_integrity else 'watch' }}">
+                    <span class="status-dot"></span>
+                    <span>Replay {% if metrics.replay_integrity %}{{ metrics.replay_integrity.integrity_confidence }}%{% else %}standby{% endif %}</span>
+                </div>
+                <div class="status-chip status-watch" id="stream-status-indicator">
+                    <span class="status-dot"></span>
+                    <span id="stream-status-label">SSE connecting</span>
+                </div>
+                <div class="header-actions">
+                    <button type="button" class="secondary-link" data-command-open>Command Palette</button>
+                    <button type="button" class="secondary-link" data-theme-toggle>Theme</button>
+                    <a href="{{ url_for('docs') }}" class="secondary-link">Docs</a>
+                    <a href="{{ url_for('onboarding') }}" class="secondary-link">Onboarding</a>
+                    <a href="{{ url_for('observability') }}" class="secondary-link">Observability</a>
+                    <a href="{{ url_for('intake') }}" class="secondary-link">Patient Intake</a>
+                    {% if current_user.role == 'admin' %}
+                    <a href="{{ url_for('admin_dashboard') }}" class="secondary-link">Admin View</a>
+                    {% endif %}
+                    <a href="{{ url_for('logout') }}" class="primary-link">Logout</a>
+                </div>
+            </div>
+        </header>
+
+        <section class="runtime-ribbon">
+            <div class="runtime-pill">
+                <span class="runtime-pill-label">Tenant</span>
+                <strong>{{ current_user.tenant_key or 'default-clinic' }}</strong>
+            </div>
+            <div class="runtime-pill">
+                <span class="runtime-pill-label">Replay Authority</span>
+                <strong>{{ metrics.replay_integrity.integrity_confidence if metrics.replay_integrity else 0 }}%</strong>
+            </div>
+            <div class="runtime-pill">
+                <span class="runtime-pill-label">Queue Pressure</span>
+                <strong>{{ oi.queue_pressure.pressure_level }}</strong>
+            </div>
+            <div class="runtime-pill">
+                <span class="runtime-pill-label">Governance</span>
+                <strong>{{ metrics.governance_state.incident_mode if metrics.governance_state else 'steady' }}</strong>
+            </div>
+            <div class="runtime-pill">
+                <span class="runtime-pill-label">Topology</span>
+                <strong id="topology-node-count">--</strong>
+            </div>
+            <div class="runtime-pill">
+                <span class="runtime-pill-label">Throughput</span>
+                <strong id="runtime-throughput-inline">--</strong>
+            </div>
+        </section>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+            <div class="status-banner {{ 'error' if category == 'error' else 'success' }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+        {% endwith %}
+        {% if success %}<div class="status-banner success">{{ success }}</div>{% endif %}
+        {% if error %}<div class="status-banner error">{{ error }}</div>{% endif %}
+
+        <section class="enterprise-analytics-grid" id="hospital-overview">
+            <article class="dashboard-card analytics-spotlight">
+                <div class="section-head compact">
+                    <span class="eyebrow">Live Hospital Overview</span>
+                    <h2>Patient flow and operational load</h2>
+                </div>
+                <div class="analytics-kpi-grid">
+                    <div class="ops-mini-card"><span class="eyebrow">Patients Today</span><strong>{{ ops.overview.patients_today }}</strong><p>Unique patients scheduled today</p></div>
+                    <div class="ops-mini-card"><span class="eyebrow">Active Appointments</span><strong>{{ ops.overview.active_appointments }}</strong><p>Scheduled, rescheduled, or in review</p></div>
+                    <div class="ops-mini-card"><span class="eyebrow">Emergency Cases</span><strong>{{ ops.overview.emergency_cases }}</strong><p>Highest priority queue</p></div>
+                    <div class="ops-mini-card"><span class="eyebrow">Doctors Available</span><strong>{{ ops.overview.doctors_available }}</strong><p>Open slots today</p></div>
+                    <div class="ops-mini-card"><span class="eyebrow">Doctors Busy</span><strong>{{ ops.overview.doctors_busy }}</strong><p>Booked or active queue</p></div>
+                    <div class="ops-mini-card"><span class="eyebrow">Pending Reviews</span><strong>{{ ops.overview.pending_reviews }}</strong><p>Awaiting clinical review</p></div>
+                    <div class="ops-mini-card"><span class="eyebrow">Rescheduled</span><strong>{{ ops.overview.rescheduled_appointments }}</strong><p>Governance-adjusted appointments</p></div>
+                    <div class="ops-mini-card"><span class="eyebrow">Queue Load</span><strong>{{ ops.overview.queue_load }}</strong><p>Appointments plus pending notifications</p></div>
+                </div>
+            </article>
+            <article class="dashboard-card enterprise-action-card">
+                <div class="section-head compact">
+                    <span class="eyebrow">Admin Command Center</span>
+                    <h2>Operations tabs</h2>
+                </div>
+                <div class="portal-button-stack compact-stack">
+                    <a href="#hospital-overview" class="portal-btn secondary clinic">Overview</a>
+                    <a href="#department-overview" class="portal-btn secondary clinic">Departments</a>
+                    <a href="#appointment-governance" class="portal-btn secondary clinic">Appointments</a>
+                    <a href="#doctor-activity" class="portal-btn secondary clinic">Doctors</a>
+                    <a href="#emergency-command-panel" class="portal-btn secondary clinic">Emergency Cases</a>
+                    <a href="#prescription-tracking" class="portal-btn secondary clinic">Prescriptions</a>
+                    <a href="#audit-delivery-panel" class="portal-btn ghost">Audit Logs</a>
+                    <a href="#runtime-workspace" class="portal-btn ghost">Monitoring</a>
+                </div>
+            </article>
+        </section>
+
+        <section class="enterprise-analytics-grid">
+            <article class="dashboard-card" id="priority-queue">
+                <div class="section-head compact">
+                    <span class="eyebrow">Priority Queue</span>
+                    <h2>Automatically sorted by urgency</h2>
+                </div>
+                <div class="ops-list">
+                    {% for item in ops.priority_queue[:8] %}
+                    <div class="ops-list-row">
+                        <div>
+                            <strong>{{ item.patient_name }}</strong>
+                            <p>{{ item.department }} · {{ item.doctor_name }} · {{ item.appointment_time }}</p>
+                        </div>
+                        <span class="queue-pill workflow-pill {{ 'critical' if item.risk == 'Emergency' else 'warning' if item.risk == 'Urgent' else 'stable' }}">{{ item.risk }} · {{ item.risk_score }}</span>
+                    </div>
+                    {% else %}
+                    <p class="ops-footnote">No active queue items.</p>
+                    {% endfor %}
+                </div>
+            </article>
+            <article class="dashboard-card" id="emergency-command-panel">
+                <div class="section-head compact">
+                    <span class="eyebrow">Emergency Command Panel</span>
+                    <h2>Active critical cases</h2>
+                </div>
+                <div class="ops-list">
+                    {% for item in ops.emergency_cases[:6] %}
+                    <div class="ops-list-row">
+                        <div>
+                            <strong>{{ item.patient_name }}</strong>
+                            <p>{{ item.department }} · Risk {{ item.risk_score }} · {{ item.status }}</p>
+                        </div>
+                        <form method="post" class="inline-action-form">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="escalate">
+                            <input type="hidden" name="appointment_id" value="{{ item.id }}">
+                            <input type="hidden" name="governance_reason" value="Emergency command panel escalation">
+                            <button type="submit" class="secondary-link">Escalate</button>
+                        </form>
+                    </div>
+                    {% else %}
+                    <p class="ops-footnote">No active emergency cases.</p>
+                    {% endfor %}
+                </div>
+            </article>
+        </section>
+
+        <section class="dashboard-card" id="department-overview">
+            <div class="section-head compact">
+                <span class="eyebrow">Department Overview</span>
+                <h2>Specialty queues and next available slots</h2>
+            </div>
+            <div class="analytics-kpi-grid">
+                {% for department in ops.department_overview %}
+                <div class="ops-mini-card">
+                    <span class="eyebrow">{{ department.department }}</span>
+                    <strong>{{ department.waiting_patients }} waiting</strong>
+                    <p>{{ department.active_doctors }} doctors available · Next: {{ department.next_available_slot }}</p>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="enterprise-analytics-grid">
+            <article class="dashboard-card" id="doctor-activity">
+                <div class="section-head compact">
+                    <span class="eyebrow">Doctor Activity</span>
+                    <h2>Availability and queue load</h2>
+                </div>
+                <div class="ops-list">
+                    {% for doctor in ops.doctor_activity %}
+                    <div class="ops-list-row">
+                        <div>
+                            <strong>{{ doctor.display_name }}</strong>
+                            <p>{{ doctor.department }} · {{ doctor.doctor_name }} · Patients Today: {{ doctor.patients_today }} · Queue: {{ doctor.current_queue }}</p>
+                        </div>
+                        <span class="queue-pill workflow-pill {{ 'stable' if doctor.status == 'Available' else 'warning' if doctor.status == 'Busy' else 'neutral' }}">{{ doctor.status }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </article>
+            <article class="dashboard-card" id="appointment-governance">
+                <div class="section-head compact">
+                    <span class="eyebrow">Appointment Governance</span>
+                    <h2>Reschedule, reassign, or escalate</h2>
+                </div>
+                <div class="ops-list">
+                    {% for appointment in appointments[:5] %}
+                    <div class="ops-list-row governance-row">
+                        <div>
+                            <strong>#{{ appointment.id }} {{ appointment.patient_name }}</strong>
+                            <p>{{ appointment.specialty }} · {{ appointment.doctor_name }} · {{ appointment.appointment_date }} {{ appointment.slot_time }}</p>
+                        </div>
+                        <form method="post" class="inline-action-form">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="reschedule">
+                            <input type="hidden" name="appointment_id" value="{{ appointment.id }}">
+                            <input type="date" name="new_appointment_date" required>
+                            <button type="submit" class="secondary-link">Reschedule</button>
+                        </form>
+                        <form method="post" class="inline-action-form">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="reassign">
+                            <input type="hidden" name="appointment_id" value="{{ appointment.id }}">
+                            <select name="doctor_name" required>
+                                {% for doctor in ops.doctor_activity %}
+                                <option value="{{ doctor.doctor_name }}">{{ doctor.display_name }} · {{ doctor.department }}</option>
+                                {% endfor %}
+                            </select>
+                            <input type="hidden" name="governance_reason" value="Administrative doctor reassignment">
+                            <button type="submit" class="secondary-link">Reassign</button>
+                        </form>
+                        <form method="post" class="inline-action-form">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="escalate">
+                            <input type="hidden" name="appointment_id" value="{{ appointment.id }}">
+                            <input type="hidden" name="governance_reason" value="Administrative priority escalation">
+                            <button type="submit" class="secondary-link">Escalate</button>
+                        </form>
+                    </div>
+                    {% else %}
+                    <p class="ops-footnote">No recent appointments to govern.</p>
+                    {% endfor %}
+                </div>
+            </article>
+        </section>
+
+        <section class="enterprise-analytics-grid">
+            <article class="dashboard-card" id="clinical-notes-visibility">
+                <div class="section-head compact">
+                    <span class="eyebrow">Doctor Notes Visibility</span>
+                    <h2>Latest notes surfaced to admin</h2>
+                </div>
+                <div class="ops-list">
+                    {% for note in ops.doctor_notes %}
+                    <div class="ops-list-row">
+                        <div>
+                            <strong>{{ note.patient_name }}</strong>
+                            <p>{{ note.department }} · {{ note.doctor_name }} · {{ note.doctor_notes }}</p>
+                        </div>
+                    </div>
+                    {% else %}
+                    <p class="ops-footnote">No doctor notes submitted yet.</p>
+                    {% endfor %}
+                </div>
+            </article>
+            <article class="dashboard-card" id="prescription-tracking">
+                <div class="section-head compact">
+                    <span class="eyebrow">Prescription Tracking</span>
+                    <h2>Issued plans and status</h2>
+                </div>
+                <div class="ops-list">
+                    {% for prescription in ops.prescriptions %}
+                    <div class="ops-list-row">
+                        <div>
+                            <strong>{{ prescription.patient_name }}</strong>
+                            <p>{{ prescription.department }} · {{ prescription.doctor_name }} · {{ prescription.issued_at }}</p>
+                        </div>
+                        <span class="queue-pill workflow-pill stable">{{ prescription.status }}</span>
+                    </div>
+                    {% else %}
+                    <p class="ops-footnote">No prescriptions issued yet.</p>
+                    {% endfor %}
+                </div>
+            </article>
+        </section>
+
+        <section class="dashboard-card" id="patient-timeline">
+            <div class="section-head compact">
+                <span class="eyebrow">Patient Timeline</span>
+                <h2>Longitudinal appointment events</h2>
+            </div>
+            <div class="ops-list">
+                {% for event in ops.patient_timeline %}
+                <div class="ops-list-row">
+                    <div>
+                        <strong>{{ event.patient_name }}</strong>
+                        <p>{{ event.event }} · {{ event.department }}</p>
+                    </div>
+                    <span class="queue-pill workflow-pill neutral">{{ event.timestamp }}</span>
+                </div>
+                {% else %}
+                <p class="ops-footnote">No patient timeline events yet.</p>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="incident-hero level-{{ oi.incident_state.level }}" id="incident-banner">
+            <div class="incident-hero-main">
+                <span class="eyebrow">Incident State</span>
+                <strong id="incident-title">{{ oi.incident_state.title }}</strong>
+                <p id="incident-summary">{{ oi.incident_state.summary }}</p>
+                <div class="incident-trigger-row" id="incident-trigger-row">
+                    {% for trigger in oi.incident_state.triggers[:3] %}
+                    <span class="reason-chip">{{ trigger }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="incident-hero-meta">
+                <span class="queue-pill workflow-pill {{ oi.incident_state.level }}" id="incident-pill">{{ oi.incident_state.level }}</span>
+                <div class="integrity-radial {{ 'stable' if metrics.replay_integrity and metrics.replay_integrity.replay_match else 'critical' if metrics.replay_integrity else 'watch' }}">
+                    <div class="integrity-radial-core">
+                        <span>Replay</span>
+                        <strong id="integrity-radial-value">{{ metrics.replay_integrity.integrity_confidence if metrics.replay_integrity else 0 }}%</strong>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="enterprise-analytics-grid">
+            <article class="dashboard-card analytics-spotlight">
+                <div class="section-head compact">
+                    <span class="eyebrow">Operational Analytics</span>
+                    <h2>Tenant-aware throughput, replay, and queue posture</h2>
+                </div>
+                <div class="analytics-kpi-grid">
+                    <div class="ops-mini-card"><span class="eyebrow">Replay Latency</span><strong id="analytics-replay-latency">--</strong><p>Replay-backed estimate</p></div>
+                    <div class="ops-mini-card"><span class="eyebrow">No Shows</span><strong id="analytics-no-show-count">--</strong><p>Lifecycle no-show detections</p></div>
+                    <div class="ops-mini-card"><span class="eyebrow">Governance</span><strong id="analytics-governance-count">--</strong><p>Approval queue load</p></div>
+                    <div class="ops-mini-card"><span class="eyebrow">Replay Depth</span><strong id="analytics-replay-depth">--</strong><p>Average causal depth</p></div>
+                </div>
+                <div class="analytics-trend-panel">
+                    <div class="ops-list-head">
+                        <strong>Workflow Throughput</strong>
+                        <span class="queue-pill workflow-pill stable" id="analytics-tenant-label">{{ current_user.tenant_key or 'default-clinic' }}</span>
+                    </div>
+                    <div class="trend-sparkline" id="analytics-throughput-trend"></div>
+                </div>
+            </article>
+            <article class="dashboard-card enterprise-action-card">
+                <div class="section-head compact">
+                    <span class="eyebrow">Enterprise Actions</span>
+                    <h2>Operational launchpad</h2>
+                </div>
+                <div class="portal-button-stack compact-stack">
+                    <button type="button" class="portal-btn primary clinic" data-demo-bootstrap>Bootstrap Demo</button>
+                    <a href="{{ url_for('docs') }}" class="portal-btn secondary clinic">Open API Docs</a>
+                    <a href="{{ url_for('observability') }}" class="portal-btn ghost">Runtime Observability</a>
+                </div>
+                <p class="ops-footnote" id="demo-bootstrap-status">Deterministic demo environment can be seeded on demand without creating fake backend-only state.</p>
+            </article>
+        </section>
+
+        <section class="command-layout command-center-layout">
+            <nav class="command-nav-rail">
+                <a href="#runtime-workspace" class="command-nav-link is-active">Runtime</a>
+                <a href="#replay-workspace" class="command-nav-link">Replay</a>
+                <a href="#diagnostics-panel" class="command-nav-link">Diagnostics</a>
+                <a href="#live-operations-grid" class="command-nav-link">Operations</a>
+                <a href="#audit-delivery-panel" class="command-nav-link">Audit</a>
+            </nav>
+            <aside class="ops-rail">
+                <article class="dashboard-card rail-card">
+                    <div class="section-head compact">
+                        <span class="eyebrow">System State</span>
+                        <h2>Runtime posture</h2>
+                    </div>
+                    <div class="rail-metric-stack">
+                        <div class="rail-metric">
+                            <span>Active workflows</span>
+                            <strong id="workflow-active-count">{{ wm.active_workflows }}</strong>
+                        </div>
+                        <div class="rail-metric">
+                            <span>Human review queue</span>
+                            <strong id="workflow-review-count">{{ wm.human_review_queue }}</strong>
+                        </div>
+                        <div class="rail-metric">
+                            <span>Emergency escalations</span>
+                            <strong id="workflow-emergency-count">{{ wm.emergency_escalations }}</strong>
+                        </div>
+                        <div class="rail-metric">
+                            <span>Failed recoveries</span>
+                            <strong id="workflow-failed-count">{{ wm.failed_recoveries }}</strong>
+                        </div>
+                    </div>
+                    <div class="signal-band">
+                        <div class="signal-head">
+                            <span>Average confidence</span>
+                            <strong id="workflow-confidence">{{ wm.average_confidence }}%</strong>
+                        </div>
+                        <div class="confidence-meter" aria-hidden="true">
+                            <span class="confidence-fill {% if wm.average_confidence >= 80 %}high{% elif wm.average_confidence >= 70 %}medium{% else %}low{% endif %}" id="workflow-confidence-bar" style="width: {{ wm.average_confidence }}%"></span>
+                        </div>
+                        <small class="confidence-caption" id="workflow-confidence-note">
+                            {% if wm.average_confidence >= 80 %}Stable autonomous range{% elif wm.average_confidence >= 70 %}Watch policy thresholds{% else %}Review-heavy workflow mix{% endif %}
+                        </small>
+                    </div>
+                    <div class="signal-band">
+                        <div class="signal-head">
+                            <span>Autonomous resolution rate</span>
+                            <strong id="autonomous-resolution-rate">{{ autonomous_rate }}%</strong>
+                        </div>
+                        <div class="confidence-meter" aria-hidden="true">
+                            <span class="confidence-fill high" id="autonomous-resolution-bar" style="width: {{ autonomous_rate }}%"></span>
+                        </div>
+                        <small>Derived from current policy outcomes.</small>
+                    </div>
+                </article>
+
+                <article class="dashboard-card rail-card">
+                    <div class="section-head compact">
+                        <span class="eyebrow">Queue Pressure</span>
+                        <h2>Heat indicators</h2>
+                    </div>
+                    <div class="ops-pressure-panel" id="workflow-pressure-panel">
+                        <div class="ops-pressure-head">
+                            <strong>Pressure profile</strong>
+                            <span class="queue-pill workflow-pill {{ oi.queue_pressure.pressure_level }}">{{ oi.queue_pressure.pressure_level }}</span>
+                        </div>
+                        <div class="pressure-meter-row">
+                            <span>Review</span>
+                            <div class="confidence-meter"><span class="pressure-fill warning" id="pressure-review-bar" style="width: {{ oi.queue_pressure.review_pressure_pct }}%"></span></div>
+                            <strong id="pressure-review-value">{{ oi.queue_pressure.review_pressure_pct }}%</strong>
+                        </div>
+                        <div class="pressure-meter-row">
+                            <span>Emergency</span>
+                            <div class="confidence-meter"><span class="pressure-fill critical" id="pressure-emergency-bar" style="width: {{ oi.queue_pressure.emergency_pressure_pct }}%"></span></div>
+                            <strong id="pressure-emergency-value">{{ oi.queue_pressure.emergency_pressure_pct }}%</strong>
+                        </div>
+                        <div class="pressure-meter-row">
+                            <span>Recovery</span>
+                            <div class="confidence-meter"><span class="pressure-fill retry" id="pressure-retry-bar" style="width: {{ oi.queue_pressure.retry_pressure_pct }}%"></span></div>
+                            <strong id="pressure-retry-value">{{ oi.queue_pressure.retry_pressure_pct }}%</strong>
+                        </div>
+                        <p class="ops-footnote" id="pressure-unresolved-note">{{ oi.queue_pressure.unresolved_workflows }} unresolved workflows across the current orchestration window.</p>
+                    </div>
+                </article>
+
+                <article class="dashboard-card rail-card">
+                    <div class="section-head compact">
+                        <span class="eyebrow">Booking Interface</span>
+                        <h2>Live slot execution</h2>
+                    </div>
+                    <form method="post" class="booking-form">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                        <input type="text" name="patient_name" placeholder="Patient name" required>
+                        <input type="email" name="patient_email" placeholder="Patient email">
+                        <input type="tel" name="phone" placeholder="Phone number" required>
+                        <input type="number" name="patient_age" min="0" max="120" placeholder="Patient age">
+                        <input type="date" name="appointment_date" required>
+                        <select name="specialty" required>
+                            <option value="" selected disabled>Select specialty</option>
+                            {% for speciality in specialities %}
+                            <option value="{{ speciality }}">{{ speciality }}</option>
+                            {% endfor %}
+                        </select>
+                        <textarea name="medical_history" rows="2" placeholder="Medical history, chronic conditions, allergies"></textarea>
+                        <textarea name="symptoms" rows="4" placeholder="Symptoms or intake note" required></textarea>
+                        <button type="submit" class="primary-btn">Book Next Available Slot</button>
+                    </form>
+                </article>
+            </aside>
+
+            <main class="ops-workspace" id="runtime-workspace">
+                <article class="dashboard-card workspace-card workspace-hero-card">
+                    <div class="section-head compact">
+                        <span class="eyebrow">Workflow Intelligence</span>
+                        <h2>Realtime orchestration overview</h2>
+                    </div>
+                    <div class="workspace-toolbar">
+                        <div class="workspace-toolbar-group">
+                            <button type="button" class="secondary-link compact-chip" data-density-toggle>Density</button>
+                            <button type="button" class="secondary-link compact-chip" data-focus-toggle>Focus Mode</button>
+                        </div>
+                        <div class="workspace-toolbar-group">
+                            <span class="queue-pill workflow-pill stable">Replay-native</span>
+                            <span class="queue-pill workflow-pill {{ oi.incident_state.level }}">{{ oi.incident_state.level }}</span>
+                        </div>
+                    </div>
+                    <div class="hero-card-grid">
+                        <div class="hero-signal-card warning">
+                            <span>Human review</span>
+                            <strong>{{ wm.human_review_queue }}</strong>
+                            <small>Manual gate activations</small>
+                        </div>
+                        <div class="hero-signal-card critical">
+                            <span>Emergency</span>
+                            <strong>{{ wm.emergency_escalations }}</strong>
+                            <small>Priority escalation load</small>
+                        </div>
+                        <div class="hero-signal-card success">
+                            <span>Autonomous</span>
+                            <strong id="workflow-autonomous-count">{{ wm.autonomous_bookings }}</strong>
+                            <small>End-to-end policy completions</small>
+                        </div>
+                        <div class="hero-signal-card retry">
+                            <span>Recovery</span>
+                            <strong>{{ oi.recovery_metrics.recovery_success_rate }}%</strong>
+                            <small>Notification recovery success</small>
+                        </div>
+                    </div>
+                    <div class="mini-telemetry-row">
+                        <div class="ops-mini-card">
+                            <span class="eyebrow">Workflow Age</span>
+                            <strong id="avg-workflow-age">{{ oi.sla_metrics.avg_workflow_age_minutes }}m</strong>
+                            <p>Average active runtime</p>
+                        </div>
+                        <div class="ops-mini-card">
+                            <span class="eyebrow">Review Latency</span>
+                            <strong id="avg-review-age">{{ oi.sla_metrics.avg_review_age_minutes }}m</strong>
+                            <p>Average human-review age</p>
+                        </div>
+                        <div class="ops-mini-card">
+                            <span class="eyebrow">Resolution Time</span>
+                            <strong id="avg-resolution-age">{{ oi.sla_metrics.avg_resolution_minutes }}m</strong>
+                            <p>Average completed duration</p>
+                        </div>
+                        <div class="ops-mini-card">
+                            <span class="eyebrow">Recovery Rate</span>
+                            <strong id="recovery-success-rate">{{ oi.recovery_metrics.recovery_success_rate }}%</strong>
+                            <p>Fallback chain performance</p>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="dashboard-card workspace-card replay-graph-card">
+                    <div class="section-head compact">
+                        <span class="eyebrow">Workflow Graph</span>
+                        <h2>Lineage-aware orchestration graph</h2>
+                    </div>
+                    <div class="graph-stage-grid">
+                        <div class="graph-node active-path" data-node="memory"><span>Memory</span><small>profile load</small></div>
+                        <div class="graph-link"></div>
+                        <div class="graph-node active-path" data-node="intake"><span>Intake</span><small>context capture</small></div>
+                        <div class="graph-link"></div>
+                        <div class="graph-node active-path" data-node="risk"><span>Risk</span><small>severity + confidence</small></div>
+                        <div class="graph-link"></div>
+                        <div class="graph-node active-path" data-node="policy"><span>Policy</span><small>decision routing</small></div>
+                    </div>
+                    <div class="graph-branch-grid">
+                        <div class="workflow-node branch" data-branch="human_review">Human review</div>
+                        <div class="workflow-node branch" data-branch="autonomous_booking">Autonomous booking</div>
+                        <div class="workflow-node branch" data-branch="emergency_escalation">Emergency escalation</div>
+                        <div class="workflow-node branch" data-branch="follow_up_questions">Follow-up</div>
+                    </div>
+                </article>
+
+                <article class="dashboard-card workspace-card replay-workspace-card" id="replay-workspace">
+                    <div class="section-head compact">
+                        <span class="eyebrow">Workflow Console</span>
+                        <h2>Replay-first execution workspace</h2>
+                    </div>
+                    <div class="replay-command-strip">
+                        <div class="replay-scrubber-shell">
+                            <span class="eyebrow">Replay Scrubber</span>
+                            <input id="replay-scrubber" type="range" min="0" max="{{ metrics.workflow_replay.steps|length if metrics.workflow_replay else 0 }}" value="{{ metrics.workflow_replay.steps|length if metrics.workflow_replay else 0 }}">
+                            <div class="replay-scrubber-meta">
+                                <span>Checkpoints and branches are rendered from canonical replay state.</span>
+                                <strong id="replay-scrubber-label">{% if metrics.workflow_replay %}{{ metrics.workflow_replay.steps|length }} events{% else %}standby{% endif %}</strong>
+                            </div>
+                        </div>
+                        <div class="replay-command-badges">
+                            <span class="queue-pill workflow-pill stable">checkpoint-aware</span>
+                            <span class="queue-pill workflow-pill {{ 'warning' if metrics.workflow_diff else 'stable' }}">{{ 'diff loaded' if metrics.workflow_diff else 'single branch' }}</span>
+                            <span class="queue-pill workflow-pill {{ 'critical' if metrics.replay_integrity and not metrics.replay_integrity.replay_match else 'stable' }}">integrity</span>
+                        </div>
+                    </div>
+                    <form method="get" class="inline-form workflow-search-form">
+                        <input type="text" id="workflow-id-input" name="workflow_id" value="{{ metrics.selected_workflow_id }}" placeholder="Inspect workflow ID">
+                        <input type="text" id="compare-workflow-id-input" name="compare_workflow_id" value="{{ metrics.compare_workflow_id }}" placeholder="Compare workflow ID">
+                        <button type="submit" class="secondary-link">Open Replay Workspace</button>
+                    </form>
+                    <div class="workspace-grid">
+                        <div class="workflow-feed workspace-panel" id="workflow-feed">
+                            <span class="eyebrow">Incident-Aware Event Stream</span>
+                            {% for item in wm.activity_feed %}
+                            <div class="workflow-feed-item {{ 'is-live' if loop.first else '' }} severity-{{ item.decision|replace('_', '-') }}">
+                                <div class="workflow-feed-meta">
+                                    <strong>{{ item.workflow_id }}</strong>
+                                    <span>{{ item.timestamp }}</span>
+                                </div>
+                                <div class="workflow-feed-body">
+                                    <p>{{ item.decision|upper }} via {{ item.agent }} in {{ item.state }}</p>
+                                    <span class="queue-pill workflow-pill {{ item.decision|replace('_', '-') }}">{{ item.decision|replace('_', ' ') }}</span>
+                                </div>
+                                <div class="workflow-feed-trace">
+                                    <span>trace {{ item.trace_id }}</span>
+                                    <span>root {{ item.root_event_id }}</span>
+                                </div>
+                                {% if item.confidence is not none %}
+                                <div class="confidence-cluster">
+                                    <div class="confidence-meta">
+                                        <span>Confidence</span>
+                                        <strong>{{ item.confidence }}%</strong>
+                                    </div>
+                                    <div class="confidence-meter compact"><span class="confidence-fill {% if item.confidence >= 80 %}high{% elif item.confidence >= 70 %}medium{% else %}low{% endif %}" style="width: {{ item.confidence }}%"></span></div>
+                                </div>
+                                {% endif %}
+                                {% if item.reasons %}
+                                <div class="workflow-reasons-inline">
+                                    {% for reason in item.reasons[:2] %}
+                                    <span class="reason-chip">{{ reason }}</span>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                            </div>
+                            {% else %}
+                            <p class="empty-state">No workflow activity yet.</p>
+                            {% endfor %}
+                        </div>
+
+                        <div class="workflow-replay-panel workspace-panel" id="workflow-replay-panel">
+                            <span class="eyebrow">Replay Workspace</span>
+                            <div class="workflow-replay-header{% if not metrics.workflow_replay %} hidden{% endif %}" id="workflow-replay-header">
+                                {% if metrics.workflow_replay %}
+                                <div>
+                                    <strong>{{ metrics.workflow_replay.workflow_id }}</strong>
+                                    <span>Latest route: {{ metrics.workflow_replay.latest_decision|replace('_', ' ') }}</span>
+                                </div>
+                                <span class="queue-pill workflow-pill {{ metrics.workflow_replay.latest_decision|replace('_', '-') }}">{{ metrics.workflow_replay.latest_decision|replace('_', ' ') }}</span>
+                                {% endif %}
+                            </div>
+                            <div class="workflow-event-list{% if not metrics.workflow_replay %} hidden{% endif %}" id="workflow-replay-events">
+                                {% if metrics.workflow_replay %}
+                                {% for step in metrics.workflow_replay.steps %}
+                                <div class="workflow-event-item severity-{{ step.decision|replace('_', '-') }}">
+                                    <div class="workflow-event-meta">
+                                        <span>{{ step.state }}</span>
+                                        <span>{{ step.agent }}</span>
+                                    </div>
+                                    <div class="workflow-event-head">
+                                        <strong>{{ step.action }}</strong>
+                                        <span class="queue-pill workflow-pill {{ step.decision|replace('_', '-') }}">{{ step.decision|replace('_', ' ') }}</span>
+                                    </div>
+                                    <div class="workflow-event-lineage">
+                                        <span>event {{ step.event_id }}</span>
+                                        <span>cause {{ step.causation_id or '-' }}</span>
+                                        <span>root {{ step.root_event_id or step.event_id }}</span>
+                                        <span>branch {{ step.replay_branch_id }}</span>
+                                    </div>
+                                    <p>{{ step.timestamp }}</p>
+                                    {% if step.confidence is not none %}
+                                    <div class="confidence-cluster">
+                                        <div class="confidence-meta">
+                                            <span>Confidence</span>
+                                            <strong>{{ step.confidence }}%</strong>
+                                        </div>
+                                        <div class="confidence-meter compact"><span class="confidence-fill {% if step.confidence >= 80 %}high{% elif step.confidence >= 70 %}medium{% else %}low{% endif %}" style="width: {{ step.confidence }}%"></span></div>
+                                    </div>
+                                    {% endif %}
+                                    {% if step.reasons %}
+                                    <div class="workflow-reasons-inline">
+                                        {% for reason in step.reasons %}
+                                        <span class="reason-chip">{{ reason }}</span>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
+                                {% endif %}
+                            </div>
+                            <p class="empty-state{% if metrics.workflow_replay %} hidden{% endif %}" id="workflow-replay-empty">Search a workflow ID to inspect timeline, causal chains, and deterministic policy decisions.</p>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="dashboard-card workspace-card" id="workflow-diff-panel">
+                    <span class="eyebrow">Replay Diff Diagnostics</span>
+                    {% if metrics.replay_integrity %}
+                    <div class="integrity-banner severity-{{ 'success' if metrics.replay_integrity.replay_match else 'critical' }}" id="replay-integrity-card">
+                        <div>
+                            <strong>Replay integrity {{ metrics.replay_integrity.integrity_confidence }}%</strong>
+                            <p>Checksum {{ metrics.replay_integrity.checksum.value[:12] }}... with {{ metrics.replay_integrity.replay_event_count }} canonical replay events.</p>
+                        </div>
+                        <div class="integrity-pill-group">
+                            <span class="queue-pill workflow-pill {{ 'stable' if metrics.replay_integrity.lineage_consistency else 'critical' }}">lineage {{ metrics.replay_integrity.lineage_consistency }}</span>
+                            <span class="queue-pill workflow-pill {{ 'stable' if metrics.replay_integrity.policy_consistency else 'critical' }}">policy {{ metrics.replay_integrity.policy_consistency }}</span>
+                            <span class="queue-pill workflow-pill {{ 'stable' if metrics.replay_integrity.retry_consistency else 'critical' }}">retry {{ metrics.replay_integrity.retry_consistency }}</span>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if metrics.workflow_diff %}
+                    <div class="diff-workspace">
+                        <div class="diff-summary-card" id="workflow-diff-header">
+                            <div>
+                                <strong>{{ metrics.workflow_diff.workflow_a }} vs {{ metrics.workflow_diff.workflow_b }}</strong>
+                                <span>{{ metrics.workflow_diff.summary }}</span>
+                            </div>
+                            <span class="queue-pill workflow-pill {% if metrics.workflow_diff.divergence_point is not none %}warning{% else %}stable{% endif %}">{% if metrics.workflow_diff.divergence_point is not none %}diverged{% else %}matched{% endif %}</span>
+                        </div>
+                        <div class="diff-grid">
+                            <div class="ops-mini-card">
+                                <span class="eyebrow">First divergence</span>
+                                <strong>{{ metrics.workflow_diff.divergence_point if metrics.workflow_diff.divergence_point is not none else 'none' }}</strong>
+                                <p>Execution branch split</p>
+                            </div>
+                            <div class="ops-mini-card">
+                                <span class="eyebrow">Policy paths</span>
+                                <strong>{{ metrics.workflow_diff.policy_path_delta }}</strong>
+                                <p>Deterministic policy comparison</p>
+                            </div>
+                            <div class="ops-mini-card">
+                                <span class="eyebrow">Retry delta</span>
+                                <strong>{{ metrics.workflow_diff.retry_delta }}</strong>
+                                <p>Recovery chain delta</p>
+                            </div>
+                            <div class="ops-mini-card">
+                                <span class="eyebrow">Latency delta</span>
+                                <strong>{{ metrics.workflow_diff.latency_delta_ms }}ms</strong>
+                                <p>Execution timing variance</p>
+                            </div>
+                        </div>
+                        {% if metrics.workflow_diff.root_cause %}
+                        <div class="root-cause-card severity-warning" id="workflow-root-cause">
+                            <div class="ops-list-head">
+                                <strong>Probable cause</strong>
+                                <span class="queue-pill workflow-pill warning">{{ metrics.workflow_diff.root_cause.confidence }}%</span>
+                            </div>
+                            <p>{{ metrics.workflow_diff.root_cause.probable_cause }}</p>
+                            <small>{{ metrics.workflow_diff.root_cause.retry_correlation }} {{ metrics.workflow_diff.root_cause.incident_correlation }}</small>
+                            <div class="workflow-reasons-inline">
+                                {% for item in metrics.workflow_diff.root_cause.supporting_events %}
+                                <span class="reason-chip">{{ item.signal }}: {{ item.detail }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                        <div class="diff-compare-grid">
+                            <div class="diff-column">
+                                <span class="eyebrow">Workflow A</span>
+                                <div class="ops-list">
+                                    {% for item in metrics.workflow_diff.differing_events %}
+                                    <div class="ops-list-item severity-warning">
+                                        <div class="ops-list-head">
+                                            <strong>Step {{ item.event_index + 1 }}</strong>
+                                            <span class="queue-pill workflow-pill warning">{{ item.workflow_a_decision }}</span>
+                                        </div>
+                                        <p>{{ item.workflow_a_action }}</p>
+                                        <small>event {{ item.workflow_a_event_id }}</small>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            <div class="diff-column">
+                                <span class="eyebrow">Workflow B</span>
+                                <div class="ops-list" id="workflow-diff-events">
+                                    {% for item in metrics.workflow_diff.differing_events %}
+                                    <div class="ops-list-item severity-critical">
+                                        <div class="ops-list-head">
+                                            <strong>Step {{ item.event_index + 1 }}</strong>
+                                            <span class="queue-pill workflow-pill critical">{{ item.workflow_b_decision }}</span>
+                                        </div>
+                                        <p>{{ item.workflow_b_action }}</p>
+                                        <small>{{ item.summary }}</small>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% else %}
+                    <p class="empty-state" id="workflow-diff-empty">Provide two workflow IDs to compare divergence, retries, policy paths, and probable cause.</p>
+                    {% endif %}
+                </article>
+            </main>
+
+            <aside class="ops-context" id="diagnostics-panel">
+                <article class="dashboard-card context-card">
+                    <div class="section-head compact">
+                        <span class="eyebrow">Incident Correlation</span>
+                        <h2>Blast radius and evidence chain</h2>
+                    </div>
+                    <div class="ops-list-item severity-warning incident-correlation-card" id="incident-correlation-card">
+                        {% if oi.incident_correlation %}
+                        <div class="ops-list-head">
+                            <strong>{{ oi.incident_correlation.probable_incident_source }}</strong>
+                            <span class="queue-pill workflow-pill {{ oi.incident_correlation.degradation_severity }}">{{ oi.incident_correlation.degradation_severity }}</span>
+                        </div>
+                        <p>{{ oi.incident_correlation.blast_radius.affected_workflow_count }} workflows, {{ oi.incident_correlation.blast_radius.affected_tool_count }} subsystems.</p>
+                        <small>{{ oi.incident_correlation.affected_subsystems|join(', ') }}</small>
+                        {% else %}
+                        <p class="empty-state">No incident correlation active.</p>
+                        {% endif %}
+                    </div>
+                <div class="ops-list" id="workflow-alerts">
+                    {% for alert in oi.alerts %}
+                    <div class="ops-alert severity-{{ alert.severity }}">
+                        <strong>{{ alert.severity|upper }}</strong>
+                        <p>{{ alert.message }}</p>
+                        </div>
+                    {% else %}
+                    <p class="empty-state">No operational alerts right now.</p>
+                    {% endfor %}
+                </div>
+                <div class="section-head compact">
+                    <span class="eyebrow">Stuck Workflows</span>
+                    <h3>Escalate stale executions</h3>
+                </div>
+                <div class="ops-list" id="stuck-workflows">
+                    {% for item in oi.stuck_workflows %}
+                    <div class="ops-list-item severity-{{ item.severity }}">
+                        <div class="ops-list-head">
+                            <strong>{{ item.workflow_id }}</strong>
+                            <span class="queue-pill workflow-pill {{ item.decision|replace('_', '-') }}">{{ item.decision|replace('_', ' ') }}</span>
+                        </div>
+                        <p>{{ item.state }} stalled for {{ item.minutes_stalled }} minutes.</p>
+                    </div>
+                    {% else %}
+                    <p class="empty-state">No stalled workflows detected.</p>
+                    {% endfor %}
+                </div>
+            </article>
+
+                <article class="dashboard-card context-card">
+                    <div class="section-head compact">
+                        <span class="eyebrow">Subsystem Telemetry</span>
+                        <h2>Tool health and latency</h2>
+                    </div>
+                    <div class="ops-list" id="tool-health-list">
+                        {% for item in oi.tool_health %}
+                        <div class="ops-list-item status-{{ item.status }}">
+                            <div class="ops-list-head">
+                                <strong>{{ item.name|replace('_', ' ') }}</strong>
+                                <span class="queue-pill workflow-pill {{ item.status }}">{{ item.status }}</span>
+                            </div>
+                            <p>{{ item.metric_label }}: {{ item.metric_value }}</p>
+                            <small>{{ item.detail }}</small>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="telemetry-grid" id="tool-latency-grid">
+                        {% for item in oi.tool_latency_profiles %}
+                        <div class="telemetry-card">
+                            <span class="eyebrow">{{ item.tool_name }}</span>
+                            <strong>P95 {{ item.p95_ms }}ms</strong>
+                            <p>P50 {{ item.p50_ms }}ms · Max {{ item.max_ms }}ms</p>
+                        </div>
+                        {% else %}
+                        <p class="empty-state">No tool latency profiles yet.</p>
+                        {% endfor %}
+                    </div>
+                </article>
+
+                <article class="dashboard-card context-card">
+                    <div class="section-head compact">
+                        <span class="eyebrow">Failure Signatures</span>
+                        <h2>Deterministic degradation patterns</h2>
+                    </div>
+                    <div class="ops-list" id="failure-signature-list">
+                        {% for item in oi.failure_signatures %}
+                        <div class="ops-list-item severity-{{ item.severity }}">
+                            <div class="ops-list-head">
+                                <strong>{{ item.signature_id }}</strong>
+                                <span class="queue-pill workflow-pill {{ item.severity }}">{{ item.confidence }}%</span>
+                            </div>
+                            <p>{{ item.pattern.detail }}</p>
+                            <small>{{ item.pattern.pattern_key }} | observed {{ item.pattern.observed_value }}</small>
+                        </div>
+                        {% else %}
+                        <p class="empty-state">No deterministic failure signatures detected.</p>
+                        {% endfor %}
+                    </div>
+                </article>
+
+                <article class="dashboard-card context-card">
+                    <div class="section-head compact">
+                        <span class="eyebrow">Anomaly Stream</span>
+                        <h2>Baseline deviations</h2>
+                    </div>
+                    <div class="ops-list" id="workflow-anomaly-list">
+                        {% for item in oi.anomalies %}
+                        <div class="ops-list-item severity-{{ 'critical' if item.score.severity == 'critical' else 'warning' }}">
+                            <div class="ops-list-head">
+                                <strong>{{ item.workflow_id }}</strong>
+                                <span class="queue-pill workflow-pill {{ item.score.severity }}">{{ item.score.score }}</span>
+                            </div>
+                            <p>{{ item.category }} via {{ item.lineage_marker }}</p>
+                            <small>{{ item.evidence[0].detail if item.evidence else 'Deviation detected.' }}</small>
+                        </div>
+                        {% else %}
+                        <p class="empty-state">No workflow anomalies detected.</p>
+                        {% endfor %}
+                    </div>
+                </article>
+
+                <article class="dashboard-card context-card">
+                    <div class="section-head compact">
+                        <span class="eyebrow">Execution Lineage</span>
+                        <h2>Recent causal chains</h2>
+                    </div>
+                    <div class="ops-list lineage-list" id="lineage-list">
+                        {% for item in oi.lineage_summaries %}
+                        <div class="ops-list-item lineage-item">
+                            <div class="ops-list-head">
+                                <strong>{{ item.workflow_id }}</strong>
+                                <span class="queue-pill workflow-pill stable">root {{ item.root_event_id }}</span>
+                            </div>
+                            <p>{{ item.event_count }} events, {{ item.tool_invocation_count }} tool calls, latest event {{ item.latest_event_id }}.</p>
+                            <small>Correlation {{ item.correlation_id }}{% if item.last_tool_name %} | last tool {{ item.last_tool_name }}{% endif %}</small>
+                        </div>
+                        {% else %}
+                        <p class="empty-state">No lineage summaries yet.</p>
+                        {% endfor %}
+                    </div>
+                </article>
+            </aside>
+        </section>
+
+        <section class="dashboard-layout expanded ops-lower-grid" id="live-operations-grid">
+            <article class="dashboard-card table-card operational-table-card">
+                <div class="section-head compact">
+                    <span class="eyebrow">Live Queue</span>
+                    <h2>Appointments, severity, and queue transitions</h2>
+                </div>
+                {% if appointments %}
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>Patient</th><th>Date</th><th>Doctor</th><th>Severity</th><th>Queue</th><th>Triage</th><th>Actions</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for appointment in appointments %}
+                            <tr>
+                                <td>{{ appointment.patient_name }}{% if appointment.patient_age %}, {{ appointment.patient_age }}y{% endif %}</td>
+                                <td>{{ appointment.appointment_date }} {{ appointment.slot_time or '-' }}</td>
+                                <td>{{ appointment.doctor_name }}</td>
+                                <td>{{ appointment.severity }}</td>
+                                <td><span class="queue-pill {{ appointment.queue_state }}">{{ appointment.queue_state }}</span></td>
+                                <td>{{ appointment.triage_summary or '-' }}</td>
+                                <td>
+                                    {% if current_user.role in ['admin', 'receptionist'] and appointment.status != 'cancelled' %}
+                                    <form method="post" class="inline-form compact-form">
+                                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                                        <input type="hidden" name="action" value="reschedule">
+                                        <input type="hidden" name="appointment_id" value="{{ appointment.id }}">
+                                        <input type="date" name="new_appointment_date" required>
+                                        <button type="submit" class="secondary-link mini-btn">Reschedule</button>
+                                    </form>
+                                    <form method="post" class="inline-form compact-form">
+                                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                                        <input type="hidden" name="action" value="cancel">
+                                        <input type="hidden" name="appointment_id" value="{{ appointment.id }}">
+                                        <input type="text" name="cancel_reason" placeholder="Reason">
+                                        <button type="submit" class="secondary-link mini-btn">Cancel</button>
+                                    </form>
+                                    {% else %}
+                                    <span class="muted-note">{{ appointment.status }}</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="empty-state">No appointments yet.</p>
+                {% endif %}
+            </article>
+
+            <article class="dashboard-card notifications-card" id="audit-delivery-panel">
+                <div class="section-head compact">
+                    <span class="eyebrow">Automation + Audit</span>
+                    <h2>Delivery health, automation runs, and audit trail</h2>
+                </div>
+                <div class="notification-list">
+                    {% for item in metrics.notifications %}
+                    <div class="notification-item">
+                        <div>
+                            <span class="notification-target">{{ item.target_type }} -> {{ item.target_name }}</span>
+                            <p>{{ item.message }}</p>
+                        </div>
+                        <div class="notification-meta"><strong>{{ item.channel }}</strong><span>{{ item.status }}</span></div>
+                    </div>
+                    {% else %}
+                    <p class="empty-state">No notifications yet.</p>
+                    {% endfor %}
+                </div>
+                <div class="automation-run-list">
+                    <span class="eyebrow">Automation Runs</span>
+                    {% for item in metrics.automation_runs %}
+                    <div class="automation-run-item">
+                        <strong>{{ item.workflow_name }}</strong>
+                        <span>{{ item.status }} | {{ item.processed_count }} processed</span>
+                        <p>{{ item.details }}</p>
+                    </div>
+                    {% else %}
+                    <p class="empty-state">No automation runs recorded yet.</p>
+                    {% endfor %}
+                </div>
+                <div class="audit-list">
+                    {% for item in metrics.audit_logs %}
+                    <div class="audit-item"><strong>{{ item.actor_name }}</strong><span>{{ item.action }}</span><p>{{ item.details }}</p></div>
+                    {% else %}
+                    <p class="empty-state">No audit events yet.</p>
+                    {% endfor %}
+                </div>
+            </article>
+        </section>
+
+        <section class="dashboard-layout expanded ops-admin-grid" id="admin-command-center">
+            <article class="dashboard-card admin-runtime-card">
+                <div class="section-head compact">
+                    <span class="eyebrow">Runtime Command</span>
+                    <h2>Queues, workers, and dispatch health</h2>
+                </div>
+                <div class="analytics-kpi-grid">
+                    <div class="ops-mini-card"><span class="eyebrow">Queue depth</span><strong id="admin-queue-depth">{{ metrics.admin_runtime.queue.queue_depth }}</strong><p>Canonical dispatch backlog</p></div>
+                    <div class="ops-mini-card"><span class="eyebrow">Active jobs</span><strong id="admin-active-jobs">{{ metrics.admin_runtime.queue.active_jobs }}</strong><p>Currently executing</p></div>
+                    <div class="ops-mini-card"><span class="eyebrow">Failed jobs</span><strong id="admin-failed-jobs">{{ metrics.admin_runtime.queue.failed_jobs }}</strong><p>Needs operator attention</p></div>
+                    <div class="ops-mini-card"><span class="eyebrow">Retry jobs</span><strong id="admin-retry-jobs">{{ metrics.admin_runtime.queue.retry_jobs }}</strong><p>Deterministic recovery path</p></div>
+                </div>
+                <div class="ops-list" id="admin-worker-list">
+                    {% for worker in metrics.admin_runtime.workers.workers[:6] %}
+                    <div class="ops-list-item {{ 'severity-warning' if worker.stale else 'status-healthy' }}">
+                        <div class="ops-list-head">
+                            <strong>{{ worker.worker_id }}</strong>
+                            <span class="queue-pill workflow-pill {{ 'warning' if worker.stale else 'stable' }}">{{ 'stale' if worker.stale else 'healthy' }}</span>
+                        </div>
+                        <p>States: {{ worker.states }}</p>
+                        <small>{{ worker.heartbeat or worker.latest_update or 'No heartbeat yet' }}</small>
+                    </div>
+                    {% else %}
+                    <p class="empty-state">No worker telemetry yet.</p>
+                    {% endfor %}
+                </div>
+            </article>
+
+            <article class="dashboard-card incident-center-card">
+                <div class="section-head compact">
+                    <span class="eyebrow">Incident Center</span>
+                    <h2>Failures, retries, and escalation control</h2>
+                </div>
+                <div class="ops-list" id="admin-incident-list">
+                    {% for alert in metrics.incident_console.alerts[:6] %}
+                    <div class="ops-alert severity-{{ alert.severity }}">
+                        <strong>{{ alert.severity|upper }}</strong>
+                        <p>{{ alert.message }}</p>
+                    </div>
+                    {% else %}
+                    <p class="empty-state">No incident alerts active.</p>
+                    {% endfor %}
+                </div>
+                <div class="ops-list" id="admin-failed-notifications">
+                    {% for item in metrics.incident_console.failed_notifications[:6] %}
+                    <div class="ops-list-item severity-critical">
+                        <div class="ops-list-head">
+                            <strong>{{ item.target_name }}</strong>
+                            <span class="queue-pill workflow-pill critical">{{ item.channel }}</span>
+                        </div>
+                        <p>{{ item.failure_reason or item.status }}</p>
+                        <small>notification {{ item.id }} · {{ item.created_at }}</small>
+                    </div>
+                    {% else %}
+                    <p class="empty-state">No failed notifications currently open.</p>
+                    {% endfor %}
+                </div>
+            </article>
+
+            <article class="dashboard-card messaging-visibility-card">
+                <div class="section-head compact">
+                    <span class="eyebrow">Messaging Visibility</span>
+                    <h2>Twilio delivery, acknowledgments, and retries</h2>
+                </div>
+                <div class="notification-list" id="admin-notification-list">
+                    {% for item in metrics.notifications[:8] %}
+                    <div class="notification-item">
+                        <div>
+                            <span class="notification-target">{{ item.target_type }} -> {{ item.target_name }}</span>
+                            <p>{{ item.message }}</p>
+                            <small>{{ item.external_id or 'pending provider id' }}</small>
+                        </div>
+                        <div class="notification-meta"><strong>{{ item.channel }}</strong><span>{{ item.status }}</span></div>
+                    </div>
+                    {% else %}
+                    <p class="empty-state">No delivery telemetry yet.</p>
+                    {% endfor %}
+                </div>
+            </article>
+
+            <article class="dashboard-card continuity-visibility-card">
+                <div class="section-head compact">
+                    <span class="eyebrow">Patient Continuity</span>
+                    <h2>Guest promotion and remembered context</h2>
+                </div>
+                <div class="analytics-kpi-grid compact-kpi-grid">
+                    <div class="ops-mini-card"><span class="eyebrow">Linked patients</span><strong id="continuity-linked-count">{{ metrics.patient_continuity.linked_patient_count }}</strong><p>Authenticated continuity records</p></div>
+                </div>
+                <div class="ops-list" id="continuity-list">
+                    {% for item in metrics.patient_continuity['items'] %}
+                    <div class="ops-list-item">
+                        <div class="ops-list-head">
+                            <strong>{{ item.patient_name }}</strong>
+                            <span class="queue-pill workflow-pill {{ 'stable' if item.whatsapp_enabled else 'watch' }}">{{ 'whatsapp' if item.whatsapp_enabled else 'profile only' }}</span>
+                        </div>
+                        <p>{{ item.patient_email or item.phone }}</p>
+                        <small>linked user {{ item.linked_user_id }} · updated {{ item.updated_at }}</small>
+                    </div>
+                    {% else %}
+                    <p class="empty-state">No linked patient profiles yet.</p>
+                    {% endfor %}
+                </div>
+            </article>
+
+            <article class="dashboard-card schedule-governance-card">
+                <div class="section-head compact">
+                    <span class="eyebrow">Schedule Governance</span>
+                    <h2>Doctor availability, conflicts, and overbooking watch</h2>
+                </div>
+                <div class="analytics-kpi-grid compact-kpi-grid">
+                    <div class="ops-mini-card"><span class="eyebrow">Booked slots</span><strong>{{ metrics.schedule_governance.booked_slots }}</strong><p>Across visible horizon</p></div>
+                    <div class="ops-mini-card"><span class="eyebrow">Available slots</span><strong>{{ metrics.schedule_governance.available_slots }}</strong><p>Governable capacity</p></div>
+                </div>
+                <div class="ops-list" id="schedule-conflict-list">
+                    {% for item in metrics.schedule_governance.conflicts %}
+                    <div class="ops-list-item severity-warning">
+                        <div class="ops-list-head">
+                            <strong>{{ item.doctor_name }}</strong>
+                            <span class="queue-pill workflow-pill warning">{{ item.count }} bookings</span>
+                        </div>
+                        <p>{{ item.appointment_date }} at {{ item.slot_time }}</p>
+                    </div>
+                    {% else %}
+                    <p class="empty-state">No slot conflicts detected.</p>
+                    {% endfor %}
+                </div>
+            </article>
+
+            <article class="dashboard-card event-timeline-card">
+                <div class="section-head compact">
+                    <span class="eyebrow">Operational Timeline</span>
+                    <h2>Canonical events, replay lineage, and operator actions</h2>
+                </div>
+                <div class="ops-list" id="admin-event-timeline">
+                    {% for item in metrics.admin_events['items'] %}
+                    <div class="ops-list-item severity-{{ item.severity }}">
+                        <div class="ops-list-head">
+                            <strong>{{ item.canonical_event }}</strong>
+                            <span class="queue-pill workflow-pill {{ item.decision|replace('_', '-') }}">{{ item.decision|replace('_', ' ') }}</span>
+                        </div>
+                        <p>{{ item.workflow_id }} · {{ item.action }}</p>
+                        <small>{{ item.timestamp }} · {{ item.agent }}</small>
+                    </div>
+                    {% else %}
+                    <p class="empty-state">No canonical operational events yet.</p>
+                    {% endfor %}
+                </div>
+            </article>
+        </section>
+
+        <section class="live-dock-grid">
+            <article class="dashboard-card live-dock-panel">
+                <div class="section-head compact">
+                    <span class="eyebrow">Live Event Dock</span>
+                    <h2>Bottom stream for operational playback</h2>
+                </div>
+                <div class="live-dock-stream" id="live-dock-stream">
+                    <div class="dock-empty">SSE-backed workflow stream mirrors the canonical event feed here for fast playback.</div>
+                </div>
+            </article>
+            <article class="dashboard-card live-dock-panel">
+                <div class="section-head compact">
+                    <span class="eyebrow">Topology Context</span>
+                    <h2>Worker and node heartbeat visibility</h2>
+                </div>
+                <div class="topology-mini-grid" id="topology-mini-grid">
+                    <div class="dock-empty">Loading topology…</div>
+                </div>
+            </article>
+        </section>
+    </div>
+    <div class="command-palette" id="command-palette" aria-hidden="true">
+        <div class="command-palette-backdrop" data-command-close></div>
+        <div class="command-palette-panel">
+            <div class="ops-list-head">
+                <strong>Command Palette</strong>
+                <button type="button" class="secondary-link" data-command-close>Close</button>
+            </div>
+            <div class="command-list">
+                <a href="{{ url_for('docs') }}">Open developer docs</a>
+                <a href="{{ url_for('onboarding') }}">Open onboarding assistant</a>
+                <a href="{{ url_for('observability') }}">Open observability workspace</a>
+                <a href="{{ url_for('workflow_stream_api') }}">Open workflow stream endpoint</a>
+            </div>
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+    <script src="{{ url_for('static', filename='enterprise.js') }}"></script>
+</body>
+</html>

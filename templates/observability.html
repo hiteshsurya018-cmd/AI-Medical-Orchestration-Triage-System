@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>DOCQ | Observability Command Center</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='docq.css') }}">
+</head>
+<body class="dashboard-body enterprise-body ops-body">
+    <div class="dashboard-shell observability-shell command-center-shell" id="observability-root" data-tenant-key="{{ observability.tenant_key }}">
+        <header class="console-topbar">
+            <div class="console-brand">
+                <div class="brand-mark">
+                    <span class="brand-dot live"></span>
+                    <span>DOCQ Observability</span>
+                </div>
+                <div>
+                    <span class="eyebrow">Distributed Runtime Visibility</span>
+                    <h1>Replay, topology, and telemetry command workspace</h1>
+                    <p class="dashboard-subtitle">Tenant {{ observability.tenant_key }} with live topology health, runtime drift visibility, and projection-backed operational telemetry.</p>
+                </div>
+            </div>
+            <div class="console-statusbar">
+                <div class="status-chip status-{{ 'healthy' if observability.database_ready else 'degraded' }}">
+                    <span class="status-dot"></span>
+                    <span>{{ 'Database ready' if observability.database_ready else 'Database degraded' }}</span>
+                </div>
+                <div class="status-chip status-watch">
+                    <span class="status-dot"></span>
+                    <span>{{ observability.runtime_nodes|length }} runtime nodes</span>
+                </div>
+                <div class="header-actions">
+                    <button type="button" class="secondary-link" data-command-open>Command Palette</button>
+                    <button type="button" class="secondary-link" data-theme-toggle>Theme</button>
+                    <a href="{{ url_for('dashboard') }}" class="secondary-link">Console</a>
+                    <a href="{{ url_for('docs') }}" class="secondary-link">Docs</a>
+                    <a href="{{ url_for('onboarding') }}" class="primary-link">Onboarding</a>
+                </div>
+            </div>
+        </header>
+
+        <section class="runtime-ribbon observability-ribbon">
+            <div class="runtime-pill">
+                <span class="runtime-pill-label">Tenant</span>
+                <strong>{{ observability.tenant_key }}</strong>
+            </div>
+            <div class="runtime-pill">
+                <span class="runtime-pill-label">Replay</span>
+                <strong>{{ observability.analytics.replay_latency_ms }}ms</strong>
+            </div>
+            <div class="runtime-pill">
+                <span class="runtime-pill-label">Nodes</span>
+                <strong>{{ observability.runtime_nodes|length }}</strong>
+            </div>
+            <div class="runtime-pill">
+                <span class="runtime-pill-label">Queue Pressure</span>
+                <strong>{{ observability.analytics.queue_throughput|length }}</strong>
+            </div>
+            <div class="runtime-pill">
+                <span class="runtime-pill-label">Incidents</span>
+                <strong>{{ observability.analytics.incident_frequency }}</strong>
+            </div>
+            <div class="runtime-pill">
+                <span class="runtime-pill-label">Governance</span>
+                <strong>{{ observability.analytics.governance_review_count }}</strong>
+            </div>
+        </section>
+
+        <section class="enterprise-analytics-grid">
+            <article class="dashboard-card analytics-spotlight">
+                <div class="section-head compact">
+                    <span class="eyebrow">Runtime Telemetry</span>
+                    <h2>Projection-backed health and throughput signals</h2>
+                </div>
+                <div class="analytics-kpi-grid">
+                    <div class="ops-mini-card">
+                        <span class="eyebrow">Replay Latency</span>
+                        <strong>{{ observability.analytics.replay_latency_ms }}ms</strong>
+                        <p>Mean hydration estimate</p>
+                    </div>
+                    <div class="ops-mini-card">
+                        <span class="eyebrow">Incidents</span>
+                        <strong>{{ observability.analytics.incident_frequency }}</strong>
+                        <p>Operational incident count</p>
+                    </div>
+                    <div class="ops-mini-card">
+                        <span class="eyebrow">Replay Depth</span>
+                        <strong>{{ observability.analytics.average_replay_depth }}</strong>
+                        <p>Average causal depth</p>
+                    </div>
+                    <div class="ops-mini-card">
+                        <span class="eyebrow">No Show</span>
+                        <strong>{{ observability.analytics.no_show_count }}</strong>
+                        <p>Lifecycle detection volume</p>
+                    </div>
+                </div>
+                <div class="analytics-trend-panel">
+                    <div class="ops-list-head">
+                        <strong>Workflow Throughput</strong>
+                        <span class="queue-pill workflow-pill stable">{{ observability.tenant_key }}</span>
+                    </div>
+                    <div class="trend-sparkline">
+                        {% for point in observability.analytics.workflow_throughput %}
+                        <div class="trend-bar">
+                            <span class="trend-bar-value">{{ point.value }}</span>
+                            <div class="trend-bar-fill" style="height: {{ 12 + (point.value * 10) }}px"></div>
+                            <span class="trend-bar-label">{{ point.label }}</span>
+                        </div>
+                        {% else %}
+                        <div class="dock-empty">No throughput samples yet.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </article>
+
+            <article class="dashboard-card enterprise-action-card">
+                <div class="section-head compact">
+                    <span class="eyebrow">Operational Access</span>
+                    <h2>Fast-path runtime controls</h2>
+                </div>
+                <div class="portal-button-stack compact-stack">
+                    <a href="{{ url_for('dashboard') }}" class="portal-btn primary clinic">Open Command Center</a>
+                    <a href="{{ url_for('metrics_api') }}" class="portal-btn secondary clinic">Prometheus Export</a>
+                    <a href="{{ url_for('observability_topology_api') }}" class="portal-btn ghost">Topology JSON</a>
+                </div>
+                <p class="ops-footnote">All operational telemetry below derives from canonical runtime state and replay-safe projections.</p>
+            </article>
+        </section>
+
+        <section class="command-layout command-center-layout observability-command-layout">
+            <nav class="command-nav-rail">
+                <a href="#observability-topology" class="command-nav-link is-active">Topology</a>
+                <a href="#observability-metrics" class="command-nav-link">Metrics</a>
+                <a href="#observability-health" class="command-nav-link">Health</a>
+                <a href="#observability-deploy" class="command-nav-link">Deploy</a>
+            </nav>
+
+            <main class="ops-workspace">
+                <article class="dashboard-card workspace-card workspace-hero-card" id="observability-topology">
+                    <div class="section-head compact">
+                        <span class="eyebrow">Distributed Topology</span>
+                        <h2>Node, stream, and replay ownership surface</h2>
+                    </div>
+                    <div class="workspace-toolbar">
+                        <div class="workspace-toolbar-group">
+                            <span class="queue-pill workflow-pill stable">Replay-authoritative</span>
+                            <span class="queue-pill workflow-pill warning">JetStream-backed</span>
+                        </div>
+                        <div class="workspace-toolbar-group">
+                            <span class="compact-chip">Tenant {{ observability.tenant_key }}</span>
+                        </div>
+                    </div>
+                    <div class="topology-cluster-grid topology-cluster-grid-wide">
+                        {% for node in observability.runtime_nodes %}
+                        <div class="ops-list-item topology-node-card">
+                            <div class="ops-list-head">
+                                <strong>{{ node.node_id }}</strong>
+                                <span class="queue-pill workflow-pill stable">{{ node.status }}</span>
+                            </div>
+                            <p>worker {{ node.worker_generation }} · stream {{ node.stream_generation }} · replay {{ node.replay_generation }}</p>
+                            <small>{{ node.heartbeat_at }}</small>
+                        </div>
+                        {% else %}
+                        <div class="dock-empty">No runtime nodes reported yet.</div>
+                        {% endfor %}
+                    </div>
+                </article>
+
+                <article class="dashboard-card" id="observability-metrics">
+                    <div class="section-head compact">
+                        <span class="eyebrow">Load Shape</span>
+                        <h2>Worker intensity and queue pressure</h2>
+                    </div>
+                    <div class="trend-sparkline observability-heatmap">
+                        {% for key, value in observability.analytics.worker_health.items() %}
+                        <div class="trend-bar">
+                            <span class="trend-bar-value">{{ value }}</span>
+                            <div class="trend-bar-fill" style="height: {{ 12 + (value * 12) }}px"></div>
+                            <span class="trend-bar-label">{{ key }}</span>
+                        </div>
+                        {% else %}
+                        <div class="dock-empty">No worker telemetry yet.</div>
+                        {% endfor %}
+                    </div>
+                </article>
+
+                <article class="dashboard-card" id="observability-health">
+                    <div class="section-head compact">
+                        <span class="eyebrow">Metrics Preview</span>
+                        <h2>Prometheus and runtime export sample</h2>
+                    </div>
+                    <pre class="metrics-preview">{% for line in observability.metrics_lines %}{{ line }}
+{% endfor %}</pre>
+                </article>
+            </main>
+
+            <aside class="ops-context">
+                <article class="dashboard-card context-card" id="observability-deploy">
+                    <div class="section-head compact">
+                        <span class="eyebrow">Deployment Health</span>
+                        <h2>Bootstrap safety and rolling readiness</h2>
+                    </div>
+                    <div class="ops-list">
+                        <div class="ops-list-item">
+                            <div class="ops-list-head">
+                                <strong>Rolling deployment</strong>
+                                <span class="queue-pill workflow-pill {{ 'stable' if observability.deployment.rolling_deploy_ready else 'critical' }}">{{ 'ready' if observability.deployment.rolling_deploy_ready else 'blocked' }}</span>
+                            </div>
+                            <p>{{ observability.deployment.environment.runtime_env }} · {{ observability.deployment.environment.event_bus_backend }}</p>
+                            <small>Critical failures: {{ observability.deployment.startup.critical_failures|join(', ') if observability.deployment.startup.critical_failures else 'none' }}</small>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="dashboard-card context-card">
+                    <div class="section-head compact">
+                        <span class="eyebrow">Trend Cards</span>
+                        <h2>Operational signals</h2>
+                    </div>
+                    <div class="analytics-kpi-grid">
+                        <div class="ops-mini-card"><span class="eyebrow">Workers</span><strong>{{ observability.analytics.worker_health|length }}</strong><p>Tracked worker groups</p></div>
+                        <div class="ops-mini-card"><span class="eyebrow">Reminder</span><strong>{{ observability.analytics.reminder_effectiveness|length }}</strong><p>Delivery outcome bands</p></div>
+                        <div class="ops-mini-card"><span class="eyebrow">Governance</span><strong>{{ observability.analytics.governance_review_count }}</strong><p>Review queue load</p></div>
+                        <div class="ops-mini-card"><span class="eyebrow">Queue</span><strong>{{ observability.analytics.queue_throughput|length }}</strong><p>Throughput buckets</p></div>
+                    </div>
+                </article>
+            </aside>
+        </section>
+    </div>
+
+    <div class="command-palette" id="command-palette" aria-hidden="true">
+        <div class="command-palette-backdrop" data-command-close></div>
+        <div class="command-palette-panel">
+            <div class="ops-list-head">
+                <strong>Observability Commands</strong>
+                <button type="button" class="secondary-link" data-command-close>Close</button>
+            </div>
+            <div class="command-list">
+                <a href="{{ url_for('dashboard') }}">Return to command center</a>
+                <a href="{{ url_for('metrics_api') }}">Open Prometheus export</a>
+                <a href="{{ url_for('observability_topology_api') }}">Open topology JSON</a>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='enterprise.js') }}"></script>
+</body>
+</html>

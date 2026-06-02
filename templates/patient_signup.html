@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>DOCQ | Patient Signup</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@700&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='docq.css') }}">
+</head>
+<body class="portal-body">
+    <main class="portal-shell login-shell-modern">
+        <section class="portal-hero-panel login-hero-panel">
+            <div class="portal-copy">
+                <span class="portal-label">DOCQ Patient Signup</span>
+                <h1>Create your patient account and continue care without losing context</h1>
+                <p class="portal-subtext">DOCQ keeps future triage, reminders, and continuity-of-care routing tied to the same remembered patient profile.</p>
+            </div>
+            <div class="portal-toolbar">
+                <button type="button" class="portal-btn ghost compact" data-theme-toggle>Toggle Theme</button>
+                <a href="{{ url_for('docs') }}" class="portal-btn ghost compact">Docs</a>
+            </div>
+            <div class="feature-stack-modern">
+                <div class="feature-row">
+                    <i data-lucide="check-circle-2" aria-hidden="true"></i>
+                    <div>
+                        <strong>Direct sign-in after signup</strong>
+                        <p>Once the account is created, DOCQ signs the patient in immediately and opens the care workspace.</p>
+                    </div>
+                </div>
+                <div class="feature-row">
+                    <i data-lucide="check-circle-2" aria-hidden="true"></i>
+                    <div>
+                        <strong>Remembered future login</strong>
+                        <p>The patient email is remembered on the login screen for later sessions so repeat sign-in is faster.</p>
+                    </div>
+                </div>
+                <div class="feature-row">
+                    <i data-lucide="check-circle-2" aria-hidden="true"></i>
+                    <div>
+                        <strong>Operational messaging ready</strong>
+                        <p>SMS, email, and WhatsApp preferences are attached to the same canonical patient profile.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <aside class="portal-quick-panel login-form-panel">
+            <div class="portal-panel-copy">
+                <span class="portal-label">PATIENT SIGNUP</span>
+                <h2>Create patient account</h2>
+                <p>Finish account setup once, then DOCQ will take you directly into the patient care workspace.</p>
+            </div>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                <div class="status-banner {{ 'error' if category == 'error' else 'success' }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+            {% endwith %}
+
+            <form method="post" class="auth-form">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+
+                <div class="field-group">
+                    <label for="name">Full name</label>
+                    <input id="name" type="text" name="name" placeholder="Patient full name" required autocomplete="name">
+                </div>
+
+                <div class="field-group">
+                    <label for="email">Email address</label>
+                    <input id="email" type="email" name="email" placeholder="patient@clinic.com" required autocomplete="email">
+                </div>
+
+                <div class="field-group">
+                    <label for="phone">Phone number</label>
+                    <input id="phone" type="tel" name="phone" placeholder="Phone number" required autocomplete="tel">
+                </div>
+
+                <div class="field-grid two">
+                    <div class="field-group">
+                        <label for="patient_age">Age</label>
+                        <input id="patient_age" type="number" min="0" max="120" name="patient_age" placeholder="Age">
+                    </div>
+                    <div class="field-group">
+                        <label for="gender">Gender</label>
+                        <input id="gender" type="text" name="gender" placeholder="Gender">
+                    </div>
+                </div>
+
+                <div class="field-group">
+                    <label for="emergency_contact">Emergency contact</label>
+                    <input id="emergency_contact" type="text" name="emergency_contact" placeholder="Optional emergency contact">
+                </div>
+
+                <div class="field-group">
+                    <label for="chronic_conditions">Conditions</label>
+                    <input id="chronic_conditions" type="text" name="chronic_conditions" placeholder="Optional chronic conditions">
+                </div>
+
+                <div class="field-group">
+                    <label for="allergies">Allergies</label>
+                    <input id="allergies" type="text" name="allergies" placeholder="Optional allergies">
+                </div>
+
+                <div class="field-group">
+                    <label for="password">Password</label>
+                    <div class="password-field">
+                        <input id="password" type="password" name="password" placeholder="Create a password (8+ characters)" required autocomplete="new-password">
+                        <button type="button" class="password-toggle" id="password-toggle" aria-label="Show password">
+                            <i data-lucide="eye" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="checkbox-stack">
+                    <label class="checkbox-row" for="prefers_sms">
+                        <input id="prefers_sms" type="checkbox" name="prefers_sms" value="yes" checked>
+                        <span>Receive SMS updates</span>
+                    </label>
+                    <label class="checkbox-row" for="prefers_email">
+                        <input id="prefers_email" type="checkbox" name="prefers_email" value="yes" checked>
+                        <span>Receive email updates</span>
+                    </label>
+                    <label class="checkbox-row" for="prefers_whatsapp">
+                        <input id="prefers_whatsapp" type="checkbox" name="prefers_whatsapp" value="yes" checked>
+                        <span>Receive WhatsApp updates</span>
+                    </label>
+                </div>
+
+                <button type="submit" class="portal-btn primary patient">Create Account and Continue</button>
+
+                <div class="auth-link-stack">
+                    <a href="{{ url_for('patient_login') }}" class="micro-link">Already have an account? Login</a>
+                    <a href="{{ url_for('access_portal') }}" class="micro-link">Back to access portal</a>
+                </div>
+            </form>
+        </aside>
+    </main>
+
+    <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <script>
+        window.lucide?.createIcons();
+        const passwordField = document.getElementById("password");
+        const passwordToggle = document.getElementById("password-toggle");
+        if (passwordField && passwordToggle) {
+            passwordToggle.addEventListener("click", () => {
+                const isHidden = passwordField.type === "password";
+                passwordField.type = isHidden ? "text" : "password";
+                passwordToggle.setAttribute("aria-label", isHidden ? "Hide password" : "Show password");
+                passwordToggle.innerHTML = isHidden
+                    ? '<i data-lucide="eye-off" aria-hidden="true"></i>'
+                    : '<i data-lucide="eye" aria-hidden="true"></i>';
+                window.lucide?.createIcons();
+            });
+        }
+    </script>
+    <script src="{{ url_for('static', filename='enterprise.js') }}"></script>
+</body>
+</html>

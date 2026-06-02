@@ -1,0 +1,31 @@
+replicaCount: 2
+
+image:
+  repository: docq
+  tag: latest
+
+service:
+  type: ClusterIP
+  port: 5000
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1024Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  cpuAverageUtilization: 70
+
+env:
+  DOCQ_ENV: production
+  DOCQ_EVENT_BUS_BACKEND: nats
+  DOCQ_DATABASE_URL: postgresql+psycopg://docq:docq@postgres:5432/docq
+  DOCQ_REDIS_URL: redis://redis:6379/0
+  DOCQ_NATS_URL: nats://nats:4222
+  DOCQ_DEFAULT_TENANT_KEY: default-clinic

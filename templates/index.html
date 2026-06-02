@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>DOCQ | Care Workspace</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ["Inter", "sans-serif"],
+                    },
+                    colors: {
+                        docq: {
+                            base: "#0C0E14",
+                            surface: "#13171F",
+                            elevated: "#1A1F2E",
+                            accent: "#3B7BF8",
+                            text: "#F0F2F7",
+                            muted: "#8B90A0",
+                            success: "#34D399",
+                            danger: "#F87171",
+                        },
+                    },
+                    boxShadow: {
+                        panel: "0 18px 48px rgba(0, 0, 0, 0.28)",
+                    },
+                    borderRadius: {
+                        card: "12px",
+                        panel: "16px",
+                        pill: "8px",
+                        action: "24px",
+                    },
+                },
+            },
+        };
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #0C0E14;
+            --bg-surface: #13171F;
+            --bg-raised: #1A1F2E;
+            --accent: #3B7BF8;
+            --accent-muted: rgba(59, 123, 248, 0.12);
+            --text-primary: #F0F2F7;
+            --text-secondary: #8B90A0;
+            --border: rgba(255, 255, 255, 0.07);
+            --danger: #F87171;
+            --danger-muted: rgba(248, 113, 113, 0.12);
+            --success: #34D399;
+        }
+
+        body {
+            background: var(--bg-base);
+            color: var(--text-primary);
+        }
+
+        .sidebar-collapsed {
+            width: 88px !important;
+        }
+
+        .sidebar-collapsed .sidebar-expand-text,
+        .sidebar-collapsed .sidebar-content,
+        .sidebar-collapsed .sidebar-section-label,
+        .sidebar-collapsed .sidebar-text-block,
+        .sidebar-collapsed .sidebar-view-link,
+        .sidebar-collapsed .sidebar-pill-wrap {
+            display: none !important;
+        }
+
+        .sidebar-collapsed .sidebar-collapsed-stack {
+            display: flex !important;
+        }
+
+        .typing-dot {
+            animation: typingPulse 1.2s ease-in-out infinite;
+        }
+
+        .typing-dot:nth-child(2) {
+            animation-delay: 0.15s;
+        }
+
+        .typing-dot:nth-child(3) {
+            animation-delay: 0.3s;
+        }
+
+        .message-enter {
+            animation: messageIn 150ms ease-out;
+        }
+
+        .drawer-open {
+            transform: translateX(0);
+        }
+
+        .drawer-closed {
+            transform: translateX(100%);
+        }
+
+        .drawer-transition {
+            transition: transform 200ms ease-out;
+        }
+
+        .shimmer {
+            background: linear-gradient(90deg, #13171F 0%, #1A1F2E 50%, #13171F 100%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s linear infinite;
+        }
+
+        .stage-pulse {
+            animation: stagePulse 200ms ease-out;
+        }
+
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        @keyframes typingPulse {
+            0%, 100% { opacity: 0.35; transform: translateY(0); }
+            50% { opacity: 1; transform: translateY(-2px); }
+        }
+
+        @keyframes messageIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes stagePulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+
+        .scrollbar-thin::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        .scrollbar-thin::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 999px;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-docq-base text-docq-text">
+    {% set profile = workspace_context.profile if workspace_context and workspace_context.profile else None %}
+    <div id="workspace-profile"
+        {% if profile %}
+        data-patient-name="{{ profile.patient_name }}"
+        data-patient-email="{{ profile.patient_email or '' }}"
+        data-phone="{{ profile.phone or '' }}"
+        data-patient-age="{{ profile.patient_age or '' }}"
+        data-patient-conditions="{{ profile.chronic_conditions or '' }}"
+        data-patient-allergies="{{ profile.allergies or '' }}"
+        data-last-visit="{{ profile.last_visit_at or '' }}"
+        {% endif %}
+    ></div>
+    <div id="workspace-session"
+        data-is-patient-authenticated="{{ 'true' if current_user and current_user.role == 'patient' else 'false' }}"
+        data-patient-email-verified="{{ 'true' if current_user and current_user.role == 'patient' and current_user.email else 'false' }}"
+    ></div>
+
+    <div class="mx-auto flex min-h-screen w-full max-w-[1600px] flex-col px-4 pb-4 pt-3 md:px-5">
+        <header class="flex h-[52px] items-center justify-between rounded-panel border border-white/10 bg-docq-surface px-4 shadow-panel">
+            <div class="flex items-center gap-3">
+                <a href="{{ url_for('access_portal') }}" class="text-sm font-medium tracking-[0.2em] text-docq-text no-underline">DOCQ</a>
+            </div>
+            <div class="flex items-center gap-3 text-center">
+                <div class="hidden sm:block">
+                    <p class="text-sm font-medium text-docq-text">{{ current_user.name if current_user and current_user.role == 'patient' else 'Guest Patient' }}</p>
+                </div>
+                <span class="inline-flex items-center gap-2 rounded-full border border-[rgba(59,123,248,0.22)] bg-[rgba(59,123,248,0.12)] px-3 py-1 text-xs font-medium text-docq-accent">
+                    <span class="h-2 w-2 rounded-full bg-docq-accent"></span>
+                    Patient Session
+                </span>
+            </div>
+            <div class="flex items-center gap-2">
+                <a href="{{ url_for('docs') }}" class="hidden rounded-action border border-white/10 bg-docq-elevated px-4 py-2 text-sm font-medium text-docq-text no-underline lg:inline-flex">Docs</a>
+                {% if current_user and current_user.role != 'patient' %}
+                <a href="{{ url_for('onboarding') }}" class="hidden rounded-action border border-white/10 bg-docq-elevated px-4 py-2 text-sm font-medium text-docq-text no-underline lg:inline-flex">Onboarding</a>
+                {% endif %}
+                <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-docq-elevated text-docq-muted" aria-label="Notifications">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17H18a2 2 0 0 0 2-2v-1.382a1 1 0 0 0-.553-.894L18 12V9a6 6 0 1 0-12 0v3l-1.447.724A1 1 0 0 0 4 13.618V15a2 2 0 0 0 2 2h3.143m5.714 0a3 3 0 1 1-5.714 0m5.714 0H9.143"/></svg>
+                </button>
+                {% if current_user %}
+                <a href="{{ url_for('logout') }}" class="inline-flex h-9 items-center justify-center rounded-action border border-white/10 bg-docq-elevated px-4 text-sm font-medium text-docq-text no-underline">Sign out</a>
+                {% else %}
+                <a href="{{ url_for('patient_login') }}" class="inline-flex h-9 items-center justify-center rounded-action border border-white/10 bg-docq-elevated px-4 text-sm font-medium text-docq-text no-underline">Sign in</a>
+                {% endif %}
+            </div>
+        </header>
+
+        <section class="mt-3 rounded-panel border border-white/10 bg-docq-surface px-4 py-3">
+            <div id="workflow-stepper" class="grid grid-cols-7 gap-2"></div>
+        </section>
+
+        <div class="relative mt-4 flex min-h-0 flex-1 gap-4 overflow-hidden">
+            <aside id="patient-sidebar" class="sidebar-transition flex h-[calc(100vh-150px)] w-[280px] flex-col rounded-panel border border-white/10 bg-docq-surface px-5 py-5 shadow-panel transition-all duration-200 ease-out">
+                <div class="mb-5 flex items-center justify-between">
+                    <span class="sidebar-expand-text text-[11px] font-medium uppercase tracking-[0.22em] text-docq-muted">Patient Snapshot</span>
+                    <button id="sidebar-toggle" type="button" class="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-docq-elevated text-docq-muted" aria-label="Collapse patient sidebar">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                    </button>
+                </div>
+
+                <div class="sidebar-content flex flex-1 flex-col gap-5 overflow-y-auto scrollbar-thin pr-1">
+                    <div>
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-12 w-12 items-center justify-center rounded-full bg-docq-elevated text-sm font-medium">
+                                {{ (current_user.name[:1] ~ current_user.name.split(' ')[-1][:1]) if current_user and current_user.role == 'patient' else 'GP' }}
+                            </div>
+                            <div class="sidebar-text-block min-w-0">
+                                <p class="truncate text-base font-medium text-docq-text">{{ current_user.name if current_user and current_user.role == 'patient' else 'Guest Patient' }}</p>
+                                <p class="truncate text-xs text-docq-muted">{{ current_user.email if current_user and current_user.role == 'patient' else 'Guest intake session' }}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="h-px bg-white/10"></div>
+
+                    <div class="space-y-4">
+                        <div class="flex items-start justify-between gap-4">
+                            <div>
+                                <p class="sidebar-section-label text-[11px] font-medium uppercase tracking-[0.22em] text-docq-muted">Age</p>
+                                <p class="sidebar-text-block mt-1 text-sm text-docq-text">{{ profile.patient_age if profile and profile.patient_age is not none else 'Not recorded' }}</p>
+                            </div>
+                            <div class="min-w-0 flex-1">
+                                <p class="sidebar-section-label text-[11px] font-medium uppercase tracking-[0.22em] text-docq-muted">Conditions</p>
+                                <div class="sidebar-pill-wrap mt-2 flex flex-wrap gap-2">
+                                    {% if profile and profile.chronic_conditions %}
+                                        {% for item in profile.chronic_conditions.split(',') %}
+                                        <span class="rounded-pill bg-[rgba(251,191,36,0.12)] px-2.5 py-1 text-xs text-[#fbbf24]">{{ item.strip() }}</span>
+                                        {% endfor %}
+                                    {% else %}
+                                        <span class="rounded-pill border border-white/10 px-2.5 py-1 text-xs text-docq-muted">No conditions</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <p class="sidebar-section-label text-[11px] font-medium uppercase tracking-[0.22em] text-docq-muted">Allergies</p>
+                            <div class="sidebar-pill-wrap mt-2 flex flex-wrap gap-2">
+                                {% if profile and profile.allergies %}
+                                    {% for item in profile.allergies.split(',') %}
+                                    <span class="inline-flex items-center gap-1 rounded-pill bg-[rgba(248,113,113,0.12)] px-2.5 py-1 text-xs text-[#f87171]">
+                                        <span>⚠</span>
+                                        <span>{{ item.strip() }}</span>
+                                    </span>
+                                    {% endfor %}
+                                {% else %}
+                                    <span class="rounded-pill border border-white/10 px-2.5 py-1 text-xs text-docq-muted">No allergies recorded</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-3">
+                        <div class="flex items-center justify-between">
+                            <p class="sidebar-section-label text-[11px] font-medium uppercase tracking-[0.22em] text-docq-muted">Upcoming Care</p>
+                        </div>
+                        {% if workspace_context and workspace_context.upcoming_appointments %}
+                            {% for item in workspace_context.upcoming_appointments[:2] %}
+                            <div class="rounded-card bg-docq-elevated px-3 py-3">
+                                <div class="mb-2 flex items-center gap-2">
+                                    <span class="inline-flex rounded-pill bg-[rgba(59,123,248,0.12)] px-2 py-1 text-[11px] text-docq-accent">{{ item.appointment_date }}</span>
+                                </div>
+                                <p class="text-sm text-docq-text">{{ item.specialty }}</p>
+                                <p class="text-xs text-docq-muted">{{ item.doctor_name }}</p>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            <div class="rounded-card bg-docq-elevated px-3 py-3">
+                                <div class="shimmer h-3 w-24 rounded-full"></div>
+                                <div class="mt-3 shimmer h-3 w-40 rounded-full"></div>
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    <div class="space-y-3">
+                        <div class="flex items-center justify-between">
+                            <p class="sidebar-section-label text-[11px] font-medium uppercase tracking-[0.22em] text-docq-muted">Care Timeline</p>
+                            <button type="button" class="sidebar-view-link text-xs text-docq-accent">View all</button>
+                        </div>
+                        <div class="space-y-3">
+                            {% if workspace_context and workspace_context.timeline %}
+                                {% for item in workspace_context.timeline[:4] %}
+                                <div class="flex items-start gap-3">
+                                    <span class="mt-1 h-2.5 w-2.5 rounded-full bg-docq-accent"></span>
+                                    <p class="sidebar-text-block text-sm leading-relaxed text-docq-muted">{{ item }}</p>
+                                </div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="space-y-2">
+                                    <div class="shimmer h-3 w-full rounded-full"></div>
+                                    <div class="shimmer h-3 w-4/5 rounded-full"></div>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sidebar-collapsed-stack hidden flex-col items-center gap-4 pt-2">
+                    <div class="flex h-10 w-10 items-center justify-center rounded-full bg-docq-elevated text-sm font-medium">
+                        {{ (current_user.name[:1] ~ current_user.name.split(' ')[-1][:1]) if current_user and current_user.role == 'patient' else 'GP' }}
+                    </div>
+                    <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-[rgba(59,123,248,0.12)] text-docq-accent">A</span>
+                    <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-[rgba(251,191,36,0.12)] text-[#fbbf24]">C</span>
+                    <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-[rgba(248,113,113,0.12)] text-[#f87171]">!</span>
+                </div>
+            </aside>
+
+            <main class="flex min-w-0 flex-1 flex-col rounded-panel border border-white/10 bg-docq-surface shadow-panel">
+                <div class="mx-auto flex h-full w-full max-w-[720px] flex-1 flex-col px-5 py-6">
+                    <div class="mb-6">
+                        <h1 class="text-[28px] font-medium leading-tight text-docq-text">How can I help you today?</h1>
+                        <div class="mt-4 flex items-center gap-3 rounded-card border border-[#34D399]/20 bg-[rgba(52,211,153,0.08)] px-4 py-3">
+                            <span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[rgba(52,211,153,0.16)] text-sm text-docq-success">✓</span>
+                            <p class="text-sm leading-relaxed text-docq-muted">
+                                {% if current_user and current_user.role == 'patient' %}
+                                Logged in as {{ current_user.name }}. DOCQ can reuse your stored age, conditions, and prior visit context.
+                                {% else %}
+                                DOCQ can reuse remembered patient context whenever a patient signs in before triage.
+                                {% endif %}
+                            </p>
+                        </div>
+                        {% if not current_user or current_user.role != 'patient' %}
+                        <div class="mt-3 flex items-center justify-between gap-3 rounded-card border border-[rgba(59,123,248,0.22)] bg-[rgba(59,123,248,0.12)] px-4 py-3">
+                            <div>
+                                <p class="text-sm font-medium text-docq-text">Create a remembered patient profile before booking</p>
+                                <p class="mt-1 text-sm leading-relaxed text-docq-muted">DOCQ will preserve triage context, reminders, and continuity-of-care when you convert this guest session into a patient account.</p>
+                            </div>
+                            <button id="open-signup-modal" type="button" class="inline-flex h-11 shrink-0 items-center justify-center rounded-action bg-docq-accent px-5 text-sm font-medium text-white">Continue as Patient</button>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <div id="chat-stream" class="scrollbar-thin flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-6" aria-live="polite">
+                        <div class="message-enter flex items-end gap-3">
+                            <div class="flex h-9 w-9 items-center justify-center rounded-full bg-[rgba(59,123,248,0.12)] text-xs font-medium text-docq-accent">DQ</div>
+                            <div class="max-w-[85%] rounded-[16px] rounded-bl-[6px] border border-white/10 bg-docq-surface px-4 py-3">
+                                <p class="mb-1 text-[11px] uppercase tracking-[0.18em] text-docq-muted">DOCQ</p>
+                                <p class="text-sm leading-relaxed text-docq-text">How can I help you today?</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 rounded-[16px] border border-white/10 bg-docq-surface p-4">
+                        <form id="intake-form" class="space-y-3">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                            <div class="space-y-2">
+                                <div class="flex items-center justify-between">
+                                    <label for="symptoms" class="text-sm font-medium text-docq-text">Describe your concern</label>
+                                    <span id="chat-char-counter" class="text-xs text-docq-muted">0 / 1200</span>
+                                </div>
+                                <textarea id="symptoms" name="symptoms" rows="4" maxlength="1200" required class="w-full resize-none rounded-card border border-white/10 bg-docq-elevated px-4 py-3 text-sm leading-relaxed text-docq-text outline-none placeholder:text-docq-muted focus:border-docq-accent focus:ring-2 focus:ring-[rgba(59,123,248,0.22)]" placeholder="Describe your concern in plain language..."></textarea>
+                            </div>
+                            <button type="submit" class="inline-flex h-12 w-full items-center justify-center rounded-action bg-docq-accent text-sm font-medium text-white transition hover:brightness-110">Send to DOCQ</button>
+                        </form>
+                    </div>
+
+                    <div id="workspace-summary-strip" class="mt-4 hidden items-center justify-between rounded-card border border-white/10 bg-docq-elevated px-4 py-3">
+                        <div>
+                            <p class="text-[11px] uppercase tracking-[0.18em] text-docq-muted">Scheduling Readiness</p>
+                            <p id="summary-readiness-copy" class="mt-1 text-sm text-docq-text">DOCQ is still collecting enough information before scheduling.</p>
+                        </div>
+                        <button id="open-booking-modal" type="button" class="inline-flex h-11 items-center justify-center rounded-action bg-docq-accent px-5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50" disabled>Book Appointment</button>
+                    </div>
+
+                    <div id="communication-timeline-strip" class="mt-4 hidden rounded-card border border-white/10 bg-docq-elevated px-4 py-3">
+                        <div class="flex items-center justify-between gap-4">
+                            <div>
+                                <p class="text-[11px] uppercase tracking-[0.18em] text-docq-muted">Communication Status</p>
+                                <p id="communication-preference-copy" class="mt-1 text-sm text-docq-text">Delivery preferences and reminder acknowledgments will appear here.</p>
+                            </div>
+                            <button id="open-profile-modal" type="button" class="inline-flex h-10 items-center justify-center rounded-action border border-white/10 bg-docq-surface px-4 text-sm font-medium text-docq-text">Preferences</button>
+                        </div>
+                    </div>
+                </div>
+            </main>
+
+            <aside id="context-drawer" class="drawer-transition drawer-closed fixed right-4 top-[126px] z-30 h-[calc(100vh-142px)] w-[340px] overflow-hidden rounded-panel border border-white/10 bg-docq-surface shadow-panel">
+                <div class="flex h-full flex-col">
+                    <div class="flex items-center justify-between border-b border-white/10 px-5 py-4">
+                        <div>
+                            <p class="text-[11px] font-medium uppercase tracking-[0.22em] text-docq-muted">Care Guidance</p>
+                            <p id="drawer-stage-title" class="mt-1 text-sm font-medium text-docq-text">Profile</p>
+                        </div>
+                        <button id="close-drawer" type="button" class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-docq-elevated text-docq-muted" aria-label="Close contextual drawer">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+                    <div id="drawer-content" class="scrollbar-thin flex-1 space-y-4 overflow-y-auto px-5 py-5">
+                        <section id="drawer-automation" class="hidden rounded-card border border-white/10 bg-docq-elevated p-4">
+                            <p class="text-[11px] font-medium uppercase tracking-[0.22em] text-docq-muted">Next Step</p>
+                            <p id="automation-stage-name" class="mt-2 text-sm font-medium text-docq-text"></p>
+                            <p id="automation-stage-copy" class="mt-2 text-sm leading-relaxed text-docq-muted"></p>
+                        </section>
+
+                        <section id="drawer-memory" class="hidden rounded-card border border-white/10 bg-docq-elevated p-4">
+                            <p class="text-[11px] font-medium uppercase tracking-[0.22em] text-docq-muted">Patient Memory</p>
+                            <div class="mt-3 space-y-3">
+                                <div id="drawer-memory-conditions" class="flex flex-wrap gap-2"></div>
+                                <div class="space-y-1">
+                                    <p class="text-xs text-docq-muted">Last visit</p>
+                                    <p id="drawer-memory-last-visit" class="text-sm text-docq-text"></p>
+                                </div>
+                                <div class="space-y-2">
+                                    <p class="text-xs text-docq-muted">Timeline preview</p>
+                                    <div id="drawer-memory-timeline" class="space-y-2"></div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section id="drawer-care-team" class="hidden rounded-card border border-white/10 bg-docq-elevated p-4">
+                            <p class="text-[11px] font-medium uppercase tracking-[0.22em] text-docq-muted">Care Team Options</p>
+                            <div id="drawer-care-team-grid" class="mt-3 grid gap-3"></div>
+                        </section>
+
+                        <section id="drawer-quick-aid" class="hidden rounded-card border border-white/10 bg-docq-elevated p-4">
+                            <p class="text-[11px] font-medium uppercase tracking-[0.22em] text-docq-muted">Quick Aid</p>
+                            <div id="drawer-quick-aid-body" class="mt-3 rounded-card bg-[rgba(59,123,248,0.12)] px-3 py-3 text-sm leading-relaxed text-docq-text"></div>
+                        </section>
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <div id="booking-modal" class="fixed inset-0 z-40 hidden items-center justify-center bg-black/50 px-4 backdrop-blur-sm">
+        <div class="w-full max-w-[480px] rounded-[16px] border border-white/10 bg-docq-surface p-6 shadow-panel">
+            <div class="mb-5 flex items-center justify-between">
+                <div>
+                    <p class="text-[11px] font-medium uppercase tracking-[0.22em] text-docq-muted">Request Appointment</p>
+                    <h2 class="mt-2 text-xl font-medium text-docq-text">Book Appointment</h2>
+                </div>
+                <button id="close-booking-modal" type="button" class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-docq-elevated text-docq-muted" aria-label="Close appointment modal">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <form id="booking-form" class="space-y-3">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <div class="space-y-1.5">
+                    <label for="patient-name" class="text-sm font-medium text-docq-text">Patient full name</label>
+                    <input id="patient-name" type="text" name="patient_name" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none focus:border-docq-accent focus:ring-2 focus:ring-[rgba(59,123,248,0.22)]" placeholder="Patient full name" required>
+                </div>
+                <div class="space-y-1.5">
+                    <label for="patient-email" class="text-sm font-medium text-docq-text">Email address</label>
+                    <input id="patient-email" type="email" name="patient_email" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none focus:border-docq-accent focus:ring-2 focus:ring-[rgba(59,123,248,0.22)]" placeholder="Email address">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="space-y-1.5">
+                        <label for="patient-phone" class="text-sm font-medium text-docq-text">Phone number</label>
+                        <input id="patient-phone" type="tel" name="phone" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none focus:border-docq-accent focus:ring-2 focus:ring-[rgba(59,123,248,0.22)]" placeholder="Phone number" required>
+                    </div>
+                    <div class="space-y-1.5">
+                        <label for="booking-age" class="text-sm font-medium text-docq-text">Age</label>
+                        <input id="booking-age" type="number" name="patient_age" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none" readonly>
+                    </div>
+                </div>
+                <div class="space-y-1.5">
+                    <label for="booking-specialty" class="text-sm font-medium text-docq-text">Specialty</label>
+                    <input id="booking-specialty" type="text" name="specialty" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none" readonly>
+                </div>
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between gap-3">
+                        <label class="text-sm font-medium text-docq-text">Choose Doctor</label>
+                        <span id="booking-doctor-hint" class="text-xs text-docq-muted">DOCQ highlights continuity-first doctors.</span>
+                    </div>
+                    <input id="booking-doctor-name" type="hidden" name="doctor_name">
+                    <div id="booking-doctor-cards" class="flex gap-3 overflow-x-auto pb-2"></div>
+                </div>
+                <div class="space-y-1.5">
+                    <label for="booking-date" class="text-sm font-medium text-docq-text">Preferred date</label>
+                    <select id="booking-date" name="appointment_date" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none focus:border-docq-accent focus:ring-2 focus:ring-[rgba(59,123,248,0.22)]" required>
+                        <option value="" selected disabled>Select preferred date</option>
+                    </select>
+                </div>
+                <div class="space-y-1.5">
+                    <label for="booking-symptoms" class="text-sm font-medium text-docq-text">Symptoms</label>
+                    <textarea id="booking-symptoms" name="symptoms" rows="4" class="w-full rounded-card border border-white/10 bg-docq-elevated px-4 py-3 text-sm text-docq-text outline-none" readonly></textarea>
+                </div>
+                <button id="booking-submit" type="submit" class="inline-flex h-12 w-full items-center justify-center rounded-action bg-docq-accent text-sm font-medium text-white">Book Appointment</button>
+            </form>
+            <p id="booking-feedback" class="mt-3 hidden rounded-card px-3 py-3 text-sm"></p>
+        </div>
+    </div>
+
+    <div id="signup-modal" class="fixed inset-0 z-40 hidden items-center justify-center bg-black/50 px-4 backdrop-blur-sm">
+        <div class="w-full max-w-[560px] rounded-[16px] border border-white/10 bg-docq-surface p-6 shadow-panel">
+            <div class="mb-5 flex items-center justify-between">
+                <div>
+                    <p class="text-[11px] font-medium uppercase tracking-[0.22em] text-docq-muted">Continuity of Care</p>
+                    <h2 class="mt-2 text-xl font-medium text-docq-text">Create your patient profile and continue</h2>
+                </div>
+                <button id="close-signup-modal" type="button" class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-docq-elevated text-docq-muted" aria-label="Close signup modal">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <form id="signup-form" class="space-y-3">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <input id="signup-name" type="text" placeholder="Full name" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none" required>
+                    <input id="signup-age" type="number" min="0" max="120" placeholder="Age" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none">
+                </div>
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <input id="signup-gender" type="text" placeholder="Gender" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none">
+                    <input id="signup-phone" type="tel" placeholder="Phone" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none" required>
+                </div>
+                <input id="signup-email" type="email" placeholder="Email address" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none" required>
+                <input id="signup-password" type="password" placeholder="Password (8+ characters)" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none" required>
+                <input id="signup-emergency-contact" type="text" placeholder="Emergency contact (optional)" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none">
+                <div class="flex flex-wrap gap-3 text-sm text-docq-muted">
+                    <label class="inline-flex items-center gap-2"><input id="prefers-sms" type="checkbox" checked> SMS</label>
+                    <label class="inline-flex items-center gap-2"><input id="prefers-email" type="checkbox" checked> Email</label>
+                    <label class="inline-flex items-center gap-2"><input id="prefers-whatsapp" type="checkbox" checked> WhatsApp</label>
+                </div>
+                <button id="signup-submit" type="submit" class="inline-flex h-12 w-full items-center justify-center rounded-action bg-docq-accent text-sm font-medium text-white">Create Profile and Continue</button>
+            </form>
+            <p id="signup-feedback" class="mt-3 hidden rounded-card px-3 py-3 text-sm"></p>
+        </div>
+    </div>
+
+    <div id="profile-modal" class="fixed inset-0 z-40 hidden items-center justify-center bg-black/50 px-4 backdrop-blur-sm">
+        <div class="w-full max-w-[520px] rounded-[16px] border border-white/10 bg-docq-surface p-6 shadow-panel">
+            <div class="mb-5 flex items-center justify-between">
+                <div>
+                    <p class="text-[11px] font-medium uppercase tracking-[0.22em] text-docq-muted">Patient Preferences</p>
+                    <h2 class="mt-2 text-xl font-medium text-docq-text">Communication and continuity settings</h2>
+                </div>
+                <button id="close-profile-modal" type="button" class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-docq-elevated text-docq-muted" aria-label="Close profile modal">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <form id="profile-form" class="space-y-3">
+                <input id="profile-patient-name" type="text" placeholder="Full name" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none">
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <input id="profile-patient-age" type="number" min="0" max="120" placeholder="Age" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none">
+                    <input id="profile-phone" type="tel" placeholder="Phone" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none">
+                </div>
+                <input id="profile-emergency-contact" type="text" placeholder="Emergency contact" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none">
+                <div class="flex flex-wrap gap-3 text-sm text-docq-muted">
+                    <label class="inline-flex items-center gap-2"><input id="profile-prefers-sms" type="checkbox" checked> SMS</label>
+                    <label class="inline-flex items-center gap-2"><input id="profile-prefers-email" type="checkbox" checked> Email</label>
+                    <label class="inline-flex items-center gap-2"><input id="profile-prefers-whatsapp" type="checkbox" checked> WhatsApp</label>
+                </div>
+                <button id="profile-submit" type="submit" class="inline-flex h-12 w-full items-center justify-center rounded-action bg-docq-accent text-sm font-medium text-white">Save Preferences</button>
+            </form>
+            <p id="profile-feedback" class="mt-3 hidden rounded-card px-3 py-3 text-sm"></p>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='docq.js', v='20260520-whatsapp-onboarding') }}"></script>
+</body>
+</html>

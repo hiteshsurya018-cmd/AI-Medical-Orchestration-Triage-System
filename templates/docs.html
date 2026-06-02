@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>DOCQ | Developer Docs</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@700&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='docq.css') }}">
+</head>
+<body class="portal-body enterprise-body">
+    <main class="portal-shell docs-shell">
+        <section class="portal-hero-panel docs-hero">
+            <div class="portal-copy">
+                <span class="portal-label">DOCQ DEVELOPER SURFACES</span>
+                <h1>Operational APIs, replay contracts, and enterprise runtime entry points.</h1>
+                <p class="portal-subtext">
+                    {{ docs_context.product_name }} exposes deterministic workflow, governance, observability, and analytics APIs
+                    from the same canonical event substrate that powers the live runtime.
+                </p>
+            </div>
+            <div class="docs-link-grid">
+                {% for item in docs_context.endpoint_groups %}
+                <a href="{{ item.href }}" class="role-card clinic">
+                    <div class="role-card-head"><span>{{ item.label }}</span></div>
+                    <strong>{{ item.description }}</strong>
+                    <p>{{ item.href }}</p>
+                </a>
+                {% endfor %}
+            </div>
+        </section>
+        <aside class="portal-quick-panel docs-side">
+            <div class="docs-toolbar">
+                <button type="button" class="portal-btn ghost compact" data-theme-toggle>Toggle Theme</button>
+                <a href="{{ docs_context.api_spec_url }}" class="portal-btn primary clinic compact">OpenAPI JSON</a>
+                <a href="{{ url_for('access_portal') }}" class="portal-btn ghost compact">Back to Portal</a>
+            </div>
+            <div class="docs-sections">
+                    {% for section in docs_context.sections %}
+                    <article class="dashboard-card docs-card">
+                        <span class="eyebrow">{{ section["title"] }}</span>
+                        <div class="docs-list">
+                            {% for item in section["items"] %}
+                            <p>{{ item }}</p>
+                            {% endfor %}
+                        </div>
+                    </article>
+                    {% endfor %}
+            </div>
+        </aside>
+    </main>
+    <script src="{{ url_for('static', filename='enterprise.js') }}"></script>
+</body>
+</html>

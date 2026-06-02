@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: docq
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: docq
+  template:
+    metadata:
+      labels:
+        app: docq
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: docq
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          ports:
+            - containerPort: 5000
+          env:
+            - name: DOCQ_ENV
+              value: {{ .Values.env.DOCQ_ENV | quote }}
+            - name: DOCQ_EVENT_BUS_BACKEND
+              value: {{ .Values.env.DOCQ_EVENT_BUS_BACKEND | quote }}
+            - name: DOCQ_DATABASE_URL
+              value: {{ .Values.env.DOCQ_DATABASE_URL | quote }}
+            - name: DOCQ_REDIS_URL
+              value: {{ .Values.env.DOCQ_REDIS_URL | quote }}
+            - name: DOCQ_NATS_URL
+              value: {{ .Values.env.DOCQ_NATS_URL | quote }}
+            - name: DOCQ_DEFAULT_TENANT_KEY
+              value: {{ .Values.env.DOCQ_DEFAULT_TENANT_KEY | quote }}
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+---
+{{- if .Values.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: docq
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: docq
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.cpuAverageUtilization }}
+{{- end }}

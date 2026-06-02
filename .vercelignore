@@ -1,0 +1,16 @@
+.env
+.git
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.venv
+.venv-1
+__pycache__
+node_modules
+tests
+docs
+helm
+k8s
+docq.db
+*.sqlite3
+*.log

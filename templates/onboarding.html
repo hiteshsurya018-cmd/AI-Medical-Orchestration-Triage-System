@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>DOCQ | Enterprise Onboarding</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@700&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='docq.css') }}">
+</head>
+<body class="portal-body enterprise-body">
+    <main class="portal-shell onboarding-shell">
+        <section class="portal-hero-panel">
+            <div class="portal-copy">
+                <span class="portal-label">ENTERPRISE ONBOARDING</span>
+                <h1>Bring clinics, operations, and governance online with deterministic readiness checks.</h1>
+                <p class="portal-subtext">
+                    Tenant setup, notifications, governance, and observability are validated through the live runtime rather
+                    than demo-only setup screens.
+                </p>
+            </div>
+            <div class="onboarding-step-list">
+                {% for step in steps %}
+                <article class="feature-row feature-row-card">
+                    <div class="feature-icon {{ step.state }}">{{ loop.index }}</div>
+                    <div>
+                        <strong>{{ step.title }}</strong>
+                        <p>{{ step.detail }}</p>
+                    </div>
+                </article>
+                {% endfor %}
+            </div>
+        </section>
+        <aside class="portal-quick-panel onboarding-side">
+            <span class="portal-label">READINESS</span>
+            <div class="stats-grid onboarding-stats">
+                <article class="stat-card"><span>Tenant</span><strong>{{ readiness.tenant_key }}</strong></article>
+                <article class="stat-card"><span>Database</span><strong>{{ 'Ready' if readiness.database_ready else 'Degraded' }}</strong></article>
+                <article class="stat-card"><span>Runtime Nodes</span><strong>{{ readiness.runtime_nodes|length }}</strong></article>
+                <article class="stat-card"><span>Replay Depth</span><strong>{{ readiness.analytics.average_replay_depth }}</strong></article>
+            </div>
+            <div class="portal-button-stack">
+                <a href="{{ url_for('dashboard') }}" class="portal-btn primary clinic">Open Operations Console</a>
+                <a href="{{ url_for('observability') }}" class="portal-btn secondary clinic">View Observability</a>
+                <a href="{{ url_for('docs') }}" class="portal-btn ghost">Developer Docs</a>
+            </div>
+        </aside>
+    </main>
+    <script src="{{ url_for('static', filename='enterprise.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,90 @@
+services:
+  app:
+    build: .
+    command: python app.py
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    environment:
+      DOCQ_DATABASE_URL: sqlite:////data/docq.db
+      DOCQ_DB_PATH: /data/docq.db
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      nats:
+        condition: service_started
+    volumes:
+      - ./:/app
+      - app_db_data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  worker:
+    build: .
+    command: python -m docq_app.worker_runtime
+    env_file:
+      - .env
+    environment:
+      DOCQ_DATABASE_URL: sqlite:////data/docq.db
+      DOCQ_DB_PATH: /data/docq.db
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      nats:
+        condition: service_started
+    volumes:
+      - ./:/app
+      - app_db_data:/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import redis; r=redis.Redis(host='redis', port=6379); r.ping()\""
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: docq
+      POSTGRES_PASSWORD: docq
+      POSTGRES_DB: docq
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U docq -d docq"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  nats:
+    image: nats:2
+    command: ["-js"]
+    ports:
+      - "4222:4222"
+
+volumes:
+  app_db_data:
+  postgres_data:
+  redis_data:

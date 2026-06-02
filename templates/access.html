@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>DOCQ | Access Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@700&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='docq.css') }}">
+</head>
+<body class="portal-body">
+    <main class="portal-shell">
+        <section class="portal-hero-panel">
+            <div class="portal-copy">
+                <span class="portal-label">DOCQ ACCESS PORTAL</span>
+                <h1>Choose how you want to enter DOCQ.</h1>
+                <p class="portal-subtext">
+                    DOCQ routes patients, clinicians, and doctors through purpose-built workspaces for remembered
+                    triage context, clinic operations, and live routed case review.
+                </p>
+            </div>
+            <div class="portal-toolbar">
+                <button type="button" class="portal-btn ghost compact" data-theme-toggle>Toggle Theme</button>
+                <a href="{{ url_for('docs') }}" class="portal-btn ghost compact">Developer Docs</a>
+                <a href="{{ url_for('observability') if current_user and current_user.role != 'patient' else url_for('patient_login') }}" class="portal-btn ghost compact">Observability</a>
+            </div>
+
+            <div class="portal-role-grid" aria-label="DOCQ access roles">
+                <a href="{{ url_for('patient_login') }}" class="role-card patient" role="button">
+                    <div class="role-card-head">
+                        <i data-lucide="user-round" aria-hidden="true"></i>
+                        <span>Patient Login</span>
+                    </div>
+                    <strong>Remembered triage context</strong>
+                    <p>Stores age, conditions, allergies, and care continuity so DOCQ asks only what is missing.</p>
+                </a>
+
+                <a href="{{ url_for('clinic_login') }}" class="role-card clinic" role="button">
+                    <div class="role-card-head">
+                        <i data-lucide="building-2" aria-hidden="true"></i>
+                        <span>DOCQ / Clinic</span>
+                    </div>
+                    <strong>Operations and scheduling</strong>
+                    <p>Manage queues, live booking, workflow pressure, and automation readiness from one console.</p>
+                </a>
+
+                <a href="{{ url_for('doctor_login') }}" class="role-card doctor portal-role-wide" role="button">
+                    <div class="role-card-head">
+                        <i data-lucide="stethoscope" aria-hidden="true"></i>
+                        <span>Doctor Login</span>
+                    </div>
+                    <strong>Inbox and review workflow</strong>
+                    <p>Open routed cases, inspect DOCQ summaries, and acknowledge appointments with triage context intact.</p>
+                </a>
+            </div>
+        </section>
+
+        <aside class="portal-quick-panel">
+            <div class="portal-panel-copy">
+                <span class="portal-label">QUICK ACCESS</span>
+                <h2>Open the triage workspace</h2>
+                <p>Choose a role-specific entry point or continue directly into the care workspace for guest intake.</p>
+            </div>
+
+            <div class="portal-button-stack">
+                <a href="{{ url_for('patient_login') }}" class="portal-btn primary patient">Patient Login</a>
+                <a href="{{ url_for('clinic_login') }}" class="portal-btn secondary clinic">DOCQ / Clinic Login</a>
+                <a href="{{ url_for('doctor_login') }}" class="portal-btn secondary doctor">Doctor Login</a>
+                <a href="{{ url_for('intake') }}" class="portal-btn ghost">Continue to intake chat</a>
+            </div>
+            <div class="portal-utility-list">
+                <a href="{{ url_for('docs') }}">API docs and replay contracts</a>
+                <a href="{{ url_for('clinic_login') }}">Enterprise onboarding</a>
+            </div>
+        </aside>
+    </main>
+
+    <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <script>
+        window.lucide?.createIcons();
+    </script>
+    <script src="{{ url_for('static', filename='enterprise.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+models/*.pkl
+docq.db
+*.sqlite3
+*.log
+.env
