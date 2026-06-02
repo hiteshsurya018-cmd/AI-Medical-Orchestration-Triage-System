@@ -9,3 +9,5 @@ docq.db
 *.sqlite3
 *.log
 .env
+
+.vercel
