@@ -1,18 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "functions": {
-    "api/**/*.py": {
-      "maxDuration": 60,
-      "memory": 1024,
-      "excludeFiles": "{.git/**,.venv/**,.venv-1/**,node_modules/**,__pycache__/**,.pytest_cache/**,.mypy_cache/**,.ruff_cache/**,tests/**,docs/**,k8s/**,helm/**,docq.db,*.sqlite3,*.log,.env}"
-    }
-  },
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/api/index.py"
-    }
-  ],
   "env": {
     "DOCQ_ENV": "production",
     "DOCQ_EVENT_BUS_BACKEND": "inprocess",
