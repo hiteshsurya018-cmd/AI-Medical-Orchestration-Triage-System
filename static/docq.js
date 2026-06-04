@@ -5,9 +5,6 @@ const workflowStepper = document.getElementById("workflow-stepper");
 const drawer = document.getElementById("context-drawer");
 const closeDrawerButton = document.getElementById("close-drawer");
 const drawerStageTitle = document.getElementById("drawer-stage-title");
-const sidebar = document.getElementById("patient-sidebar");
-const sidebarToggle = document.getElementById("sidebar-toggle");
-const snapshotDrawerOpenButton = document.getElementById("snapshot-drawer-open");
 const chatCharCounter = document.getElementById("chat-char-counter");
 const summaryStrip = document.getElementById("workspace-summary-strip");
 const summaryReadinessCopy = document.getElementById("summary-readiness-copy");
@@ -1027,23 +1024,6 @@ async function runIntake(message) {
         addBubble(error.message || "DOCQ could not analyze the intake right now.", "bot");
     }
 }
-
-function setSnapshotDrawerOpen(isOpen) {
-    if (!sidebar) {
-        return;
-    }
-    sidebar.classList.toggle("snapshot-drawer-open", isOpen);
-    sidebar.classList.toggle("snapshot-drawer-closed", !isOpen);
-    snapshotDrawerOpenButton?.classList.toggle("hidden", isOpen);
-}
-
-if (sidebarToggle && sidebar) {
-    sidebarToggle.addEventListener("click", () => {
-        setSnapshotDrawerOpen(false);
-    });
-}
-
-snapshotDrawerOpenButton?.addEventListener("click", () => setSnapshotDrawerOpen(true));
 
 closeDrawerButton?.addEventListener("click", closeDrawer);
 document.querySelectorAll("[data-patient-panel]").forEach((node) => {

@@ -309,9 +309,10 @@ def test_patient_workspace_keeps_triage_primary_and_embeds_healthcare_panels(cli
     assert "data-patient-panel=\"timeline\"" in body
     assert "Emergency Assessment" in body
     assert "<body class=\"h-screen overflow-hidden bg-docq-base text-docq-text\">" in body
-    assert "id=\"snapshot-drawer-open\"" in body
-    assert "id=\"patient-sidebar\" class=\"sidebar-transition snapshot-drawer-closed fixed" in body
-    assert "max-w-[90vw]" in body
+    assert "id=\"snapshot-drawer-open\"" not in body
+    assert "id=\"patient-sidebar\"" not in body
+    assert ">Assessment</a>" not in body
+    assert "lg:max-w-[calc(100vw-460px)]" in body
     assert "id=\"chat-shell\"" in body
     assert "id=\"chat-stream\"" in body
     assert "id=\"chat-input\"" in body
