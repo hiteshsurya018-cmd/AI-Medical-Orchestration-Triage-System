@@ -6,7 +6,7 @@ from io import BytesIO
 import json
 import pytest
 
-from docq_app.appointments import EVALUATION_WORKFLOW_PREFIX, SECURITY_WORKFLOW_PREFIX, build_workflow_model_diff, cancel_appointment, create_appointment, fetch_active_threshold_profile, fetch_appointments, fetch_candidate_threshold_profile, fetch_coordination_queue_items, fetch_emergency_escalations, fetch_latest_clinical_diary, fetch_latest_patient_vitals, fetch_latest_prescription, fetch_notifications, fetch_prescriptions, fetch_report_analyses, fetch_sla_violations, fetch_tool_execution_logs, fetch_workflow_events, fetch_workflow_predictions, get_appointment, persist_governance_timeline_event, recommend_doctor_for_patient, recommend_doctor_matches, record_security_event
+from docq_app.appointments import EVALUATION_WORKFLOW_PREFIX, SECURITY_WORKFLOW_PREFIX, build_workflow_model_diff, cancel_appointment, create_appointment, fetch_active_threshold_profile, fetch_appointments, fetch_candidate_threshold_profile, fetch_care_plans, fetch_coordination_queue_items, fetch_emergency_escalations, fetch_latest_clinical_diary, fetch_latest_patient_vitals, fetch_latest_prescription, fetch_notifications, fetch_prescriptions, fetch_report_analyses, fetch_sla_violations, fetch_tool_execution_logs, fetch_workflow_events, fetch_workflow_predictions, get_appointment, persist_governance_timeline_event, recommend_doctor_for_patient, recommend_doctor_matches, record_security_event
 from docq_app.contracts import GovernanceTimelineEvent, RolloutSimulationProfile, WorkflowEventRecord
 from docq_app.advisory_locks import acquire_advisory_lock, release_advisory_lock
 from docq_app.appointment_lifecycle import current_lifecycle_state, reconstruct_operational_state, transition_appointment_lifecycle
@@ -175,6 +175,212 @@ def test_login_rejects_external_next_redirect(client):
     )
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/dashboard")
+
+
+def test_unified_login_routes_each_role_to_workspace(client):
+    cases = [
+        ("patient@docq.local", "patient123", "/intake"),
+        ("cardio@docq.local", "doctor123", "/doctor/dashboard"),
+        ("admin@docq.local", "admin123", "/dashboard"),
+    ]
+    for email, password, expected_suffix in cases:
+        client.get("/logout")
+        csrf = extract_csrf(client, "/login")
+        response = client.post(
+            "/login",
+            data={"email": email, "password": password, "_csrf_token": csrf},
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+        assert response.headers["Location"].endswith(expected_suffix)
+
+
+def test_patient_assessment_workspace_only_shows_own_records(client, app):
+    client.get("/")
+    with client.session_transaction() as session:
+        csrf = session["_csrf_token"]
+    first_signup = client.post(
+        "/api/auth/patient-signup",
+        json={"name": "Visible Patient", "email": "visible@example.com", "password": "securepass1", "phone": "9393939301"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert first_signup.status_code == 201
+    client.get("/logout")
+    client.get("/")
+    with client.session_transaction() as session:
+        csrf = session["_csrf_token"]
+    second_signup = client.post(
+        "/api/auth/patient-signup",
+        json={"name": "Hidden Patient", "email": "hidden@example.com", "password": "securepass1", "phone": "9393939302"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert second_signup.status_code == 201
+    client.get("/logout")
+    tomorrow = (dt.date.today() + dt.timedelta(days=1)).isoformat()
+    with app.app_context():
+        create_appointment(
+            {
+                "patient_name": "Visible Patient",
+                "patient_email": "visible@example.com",
+                "phone": "9393939301",
+                "patient_age": 34,
+                "symptoms": "Visible knee pain",
+                "specialty": "Orthopedics",
+                "doctor_name": "DOCQ Orthopedics",
+                "appointment_date": tomorrow,
+            },
+            actor_name="Tester",
+            actor_role="admin",
+            config=app.config,
+        )
+        create_appointment(
+            {
+                "patient_name": "Hidden Patient",
+                "patient_email": "hidden@example.com",
+                "phone": "9393939302",
+                "patient_age": 41,
+                "symptoms": "Hidden rash",
+                "specialty": "Dermatology",
+                "doctor_name": "DOCQ Dermatology",
+                "appointment_date": tomorrow,
+            },
+            actor_name="Tester",
+            actor_role="admin",
+            config=app.config,
+        )
+    csrf = extract_csrf(client, "/login")
+    login = client.post(
+        "/login",
+        data={"email": "visible@example.com", "password": "securepass1", "_csrf_token": csrf},
+        follow_redirects=False,
+    )
+    assert login.status_code == 302
+    workspace = client.get("/intake")
+    body = workspace.get_data(as_text=True)
+    assert workspace.status_code == 200
+    assert "How can I help you today?" in body
+    assert "data-patient-panel=\"appointments\"" in body
+    assert "DOCQ Orthopedics" in body
+    assert "DOCQ Dermatology" not in body
+
+
+def test_patient_workspace_keeps_triage_primary_and_embeds_healthcare_panels(client, app):
+    tomorrow = (dt.date.today() + dt.timedelta(days=1)).isoformat()
+    with app.app_context():
+        create_appointment(
+            {
+                "patient_name": "Aarav Patient",
+                "patient_email": "patient@docq.local",
+                "phone": "7000000000",
+                "patient_age": 62,
+                "symptoms": "Follow-up for breathing problem",
+                "specialty": "Pulmonology",
+                "doctor_name": "DOCQ Pulmonology",
+                "appointment_date": tomorrow,
+            },
+            actor_name="Tester",
+            actor_role="admin",
+            config=app.config,
+        )
+    csrf = extract_csrf(client, "/login")
+    login = client.post(
+        "/login",
+        data={"email": "patient@docq.local", "password": "patient123", "_csrf_token": csrf},
+        follow_redirects=False,
+    )
+    assert login.status_code == 302
+    forbidden_terms = [
+        "Risk Agent",
+        "Policy Engine",
+        "Workflow Engine",
+        "Escalation Workflow",
+        "Routing Logic",
+        "Agent Decisions",
+    ]
+    response = client.get("/intake")
+    body = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "How can I help you today?" in body
+    assert "Describe your concern" in body
+    assert "data-patient-panel=\"appointments\"" in body
+    assert "data-patient-panel=\"doctors\"" in body
+    assert "data-patient-panel=\"reports\"" in body
+    assert "data-patient-panel=\"prescriptions\"" in body
+    assert "data-patient-panel=\"timeline\"" in body
+    assert "Emergency Assessment" in body
+    assert "<body class=\"h-screen overflow-hidden bg-docq-base text-docq-text\">" in body
+    assert "id=\"snapshot-drawer-open\"" in body
+    assert "id=\"patient-sidebar\" class=\"sidebar-transition snapshot-drawer-closed fixed" in body
+    assert "max-w-[90vw]" in body
+    assert "id=\"chat-shell\"" in body
+    assert "id=\"chat-stream\"" in body
+    assert "id=\"chat-input\"" in body
+    assert "drawer-transition drawer-closed fixed" in body
+    assert "right-0 top-0 z-[60] h-screen" in body
+    assert "w-[420px] max-w-[calc(100vw-1rem)]" in body
+    assert "patient-panel-appointments" in body
+    assert "patient-panel-reports" in body
+    assert "patient-panel-prescriptions" in body
+    assert "patient-panel-profile" in body
+    assert "Profile details stay in this slide-out panel" in body
+    assert "Medical Timeline" in body
+    assert "Assessment: Follow-up for breathing problem" in body
+    assert "Patient Portal" not in body
+    for term in forbidden_terms:
+        assert term not in body
+    portal_redirect = client.get("/patient/dashboard", follow_redirects=False)
+    assert portal_redirect.status_code == 302
+    assert portal_redirect.headers["Location"].endswith("/intake")
+
+
+def test_admin_can_manage_doctors_and_inactive_doctor_cannot_login(client):
+    csrf = extract_csrf(client, "/login")
+    login = client.post(
+        "/login",
+        data={"email": "admin@docq.local", "password": "admin123", "_csrf_token": csrf},
+        follow_redirects=False,
+    )
+    assert login.status_code == 302
+    with client.session_transaction() as session:
+        csrf = session["_csrf_token"]
+    create_response = client.post(
+        "/admin/doctors",
+        json={
+            "name": "Dr Managed Ortho",
+            "email": "managed-ortho@example.com",
+            "password": "managedpass1",
+            "department": "Orthopedics",
+            "doctor_name": "DOCQ Managed Ortho",
+            "branch": "Mysore Central",
+            "specialization": "Sports Injury",
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert create_response.status_code == 201
+    doctor_id = create_response.get_json()["doctor_id"]
+    list_response = client.get("/admin/doctors")
+    assert list_response.status_code == 200
+    assert any(item["email"] == "managed-ortho@example.com" for item in list_response.get_json()["items"])
+    update_response = client.patch(
+        f"/admin/doctors/{doctor_id}",
+        json={"availability": "Busy", "status": "active"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert update_response.status_code == 200
+    delete_response = client.delete(f"/admin/doctors/{doctor_id}", headers={"X-CSRF-Token": csrf})
+    assert delete_response.status_code == 200
+    inactive_response = client.get("/admin/doctors?include_inactive=true")
+    inactive_doctor = next(item for item in inactive_response.get_json()["items"] if item["email"] == "managed-ortho@example.com")
+    assert inactive_doctor["status"] == "inactive"
+    client.get("/logout")
+    inactive_csrf = extract_csrf(client, "/login")
+    inactive_login = client.post(
+        "/login",
+        data={"email": "managed-ortho@example.com", "password": "managedpass1", "_csrf_token": inactive_csrf},
+        follow_redirects=False,
+    )
+    assert inactive_login.status_code == 200
+    assert "account is inactive" in inactive_login.get_data(as_text=True)
 
 
 def test_doctor_can_save_diary_and_prescription_with_whatsapp_archive(client, app):
@@ -450,6 +656,101 @@ def test_doctor_inbox_uploads_report_file_and_displays_findings(client, app):
     html = response.get_data(as_text=True)
     assert "Report analyzed" in html
     assert "Tsh is above" in html
+
+
+def test_doctor_command_center_manages_availability_reports_and_care_plan(client, app):
+    tomorrow = (dt.date.today() + dt.timedelta(days=1)).isoformat()
+    with app.app_context():
+        appointment = create_appointment(
+            {
+                "patient_name": "Command Center Patient",
+                "patient_email": "doctor-command@example.com",
+                "phone": "7777777755",
+                "patient_age": 58,
+                "medical_history": "hypertension",
+                "specialty": "General",
+                "appointment_date": tomorrow,
+                "symptoms": "Medication review and fatigue",
+            },
+            actor_name="Tester",
+            actor_role="admin",
+            config=app.config,
+        )
+    csrf = extract_csrf(client, "/doctor-login")
+    client.post("/doctor-login", data={"email": "neuro@docq.local", "password": "doctor123", "_csrf_token": csrf}, follow_redirects=False)
+    dashboard = client.get("/doctor/dashboard")
+    body = dashboard.get_data(as_text=True)
+    assert dashboard.status_code == 200
+    assert "Clinical Command Center" in body
+    assert "My Patients" in body
+    assert "Patient Clinical Record" in body
+    assert "Report Review Center" in body
+    assert "Prescription Workspace" in body
+    assert "Doctor Performance" in body
+    with client.session_transaction() as session:
+        token = session["_csrf_token"]
+    availability = client.post(
+        "/doctor/dashboard",
+        data={"_csrf_token": token, "action": "update-availability", "availability": "Emergency Duty"},
+        follow_redirects=True,
+    )
+    assert availability.status_code == 200
+    with app.app_context():
+        with get_connection() as connection:
+            doctor = connection.execute("SELECT availability FROM users WHERE email = ?", ("neuro@docq.local",)).fetchone()
+    assert doctor["availability"] == "Emergency Duty"
+    report_response = client.post(
+        "/doctor/dashboard",
+        data={
+            "_csrf_token": token,
+            "appointment_id": str(appointment["id"]),
+            "action": "upload-report",
+            "report_file": (BytesIO(b"CBC Report Hemoglobin 8.0 WBC 13000"), "cbc.txt"),
+        },
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    assert report_response.status_code == 200
+    with app.app_context():
+        report = fetch_report_analyses(int(appointment["id"]))[0]
+    review = client.post(
+        "/doctor/dashboard",
+        data={
+            "_csrf_token": token,
+            "appointment_id": str(appointment["id"]),
+            "action": "review-report",
+            "report_id": str(report["id"]),
+            "review_status": "abnormal-flagged",
+            "review_notes": "Repeat CBC requested.",
+        },
+        follow_redirects=True,
+    )
+    assert review.status_code == 200
+    care_plan = client.post(
+        "/doctor/dashboard",
+        data={
+            "_csrf_token": token,
+            "appointment_id": str(appointment["id"]),
+            "action": "save-care-plan",
+            "medication_plan": "Continue current medication until review.",
+            "lifestyle_guidance": "Rest and hydrate.",
+            "diet_recommendations": "Iron-rich food.",
+            "monitoring_tasks": "Track fatigue daily.",
+            "warning_signs": "Seek care for breathlessness.",
+            "follow_up_schedule": "Review in 7 days.",
+        },
+        follow_redirects=True,
+    )
+    assert care_plan.status_code == 200
+    with app.app_context():
+        reviewed = fetch_report_analyses(int(appointment["id"]))[0]
+        plans = fetch_care_plans(int(appointment["id"]))
+        updated_appointment = get_appointment(int(appointment["id"]))
+    assert reviewed["review_status"] == "abnormal-flagged"
+    assert "Repeat CBC" in reviewed["review_notes"]
+    assert plans
+    assert "Iron-rich food" in plans[0]["plan_json"]
+    assert updated_appointment["status"] == "care-plan-issued"
 
 
 def test_patient_signup_returns_whatsapp_sandbox_onboarding_when_configured(client, app):
@@ -1208,7 +1509,7 @@ def test_patient_signup_continues_guest_workflow_context(client, app):
         assert session["role"] == "patient"
 
 
-def test_patient_signup_credentials_work_for_patient_login(client):
+def test_patient_signup_credentials_work_for_unified_login(client):
     client.get("/")
     with client.session_transaction() as session:
         csrf = session["_csrf_token"]
@@ -1224,14 +1525,86 @@ def test_patient_signup_credentials_work_for_patient_login(client):
     )
     assert signup.status_code == 201
     client.get("/logout")
-    login_csrf = extract_csrf(client, "/patient-login")
+    login_csrf = extract_csrf(client, "/login")
     login = client.post(
-        "/patient-login",
+        "/login",
         data={"email": "loginpatient@example.com", "password": "securepass1", "_csrf_token": login_csrf},
         follow_redirects=False,
     )
     assert login.status_code == 302
     assert login.headers["Location"].endswith("/intake")
+
+
+def test_expired_patient_session_uses_unified_login(client, app):
+    client.get("/")
+    with client.session_transaction() as session:
+        csrf = session["_csrf_token"]
+    signup = client.post(
+        "/api/auth/patient-signup",
+        json={
+            "name": "Returning Patient",
+            "email": "returning@example.com",
+            "password": "securepass1",
+            "phone": "9393939394",
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert signup.status_code == 201
+    client.get("/logout")
+    intake = client.get("/intake")
+    assert "/login?next=/intake" in intake.get_data(as_text=True)
+    login_csrf = extract_csrf(client, "/login")
+    login = client.post(
+        "/login?next=/intake",
+        data={"email": " Returning@Example.com ", "password": "securepass1", "_csrf_token": login_csrf},
+        follow_redirects=False,
+    )
+    assert login.status_code == 302
+    assert login.headers["Location"].endswith("/intake")
+    with app.app_context():
+        with get_connection() as connection:
+            user = connection.execute("SELECT id, email, role FROM users WHERE email = ?", ("returning@example.com",)).fetchone()
+            profile = connection.execute("SELECT linked_user_id FROM patient_profiles WHERE patient_email = ?", ("returning@example.com",)).fetchone()
+    assert user is not None
+    assert user["role"] == "patient"
+    assert profile is not None
+    assert int(profile["linked_user_id"]) == int(user["id"])
+
+
+def test_patient_credentials_on_unified_login_route_to_assessment_workspace(client, app):
+    client.get("/")
+    with client.session_transaction() as session:
+        csrf = session["_csrf_token"]
+    signup = client.post(
+        "/api/auth/patient-signup",
+        json={
+            "name": "Wrong Portal Patient",
+            "email": "wrongportal@example.com",
+            "password": "securepass1",
+            "phone": "9393939395",
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert signup.status_code == 201
+    client.get("/logout")
+    login_csrf = extract_csrf(client, "/login")
+    response = client.post(
+        "/login",
+        data={"email": "wrongportal@example.com", "password": "securepass1", "_csrf_token": login_csrf},
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/intake")
+    with app.app_context():
+        with get_connection() as connection:
+            diagnostic = connection.execute(
+                "SELECT payload_json FROM workflow_events WHERE action = 'login_attempt_diagnostic' ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+    assert diagnostic is not None
+    diagnostic_payload = json.loads(diagnostic["payload_json"])
+    assert diagnostic_payload["user_found"] is True
+    assert diagnostic_payload["password_valid"] is True
+    assert diagnostic_payload["role"] == "patient"
 
 
 def test_patient_signup_page_posts_and_redirects_into_intake(client):
@@ -1255,11 +1628,11 @@ def test_patient_signup_page_posts_and_redirects_into_intake(client):
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/intake")
     client.get("/logout")
-    login_csrf = extract_csrf(client, "/patient-login")
-    login_page = client.get("/patient-login")
+    login_csrf = extract_csrf(client, "/login")
+    login_page = client.get("/login")
     assert "formsignup@example.com" in login_page.get_data(as_text=True)
     login = client.post(
-        "/patient-login",
+        "/login",
         data={"email": "formsignup@example.com", "password": "securepass1", "_csrf_token": login_csrf},
         follow_redirects=False,
     )
@@ -1570,10 +1943,10 @@ def test_lineage_reconstruction_preserves_forward_and_reverse_paths(app):
     assert reverse[0] == events[-1]["id"]
 
 
-def test_patient_login_uses_stored_profile_context_without_reasking_age(client):
-    csrf = extract_csrf(client, "/patient-login")
+def test_unified_patient_login_uses_stored_profile_context_without_reasking_age(client):
+    csrf = extract_csrf(client, "/login")
     login_response = client.post(
-        "/patient-login",
+        "/login?next=/intake",
         data={"email": "patient@docq.local", "password": "patient123", "_csrf_token": csrf},
         follow_redirects=False,
     )

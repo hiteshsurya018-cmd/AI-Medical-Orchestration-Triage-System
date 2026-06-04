@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>DOCQ | Patient Portal</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='docq.css') }}">
+</head>
+<body class="patient-portal-body">
+    {% set patient_name = profile.patient_name if profile else current_user.name %}
+    {% set next_appointment = quick_summary.upcoming_appointment %}
+    {% set active_prescription = quick_summary.active_prescription %}
+    {% set assessment_url = url_for('intake') %}
+    <div class="patient-portal-shell">
+        <nav class="patient-top-nav" aria-label="Primary patient navigation">
+            <a href="{{ url_for('patient_dashboard') }}" class="patient-top-link {{ 'active' if active_section == 'dashboard' else '' }}">Dashboard</a>
+            <a href="{{ assessment_url }}" class="patient-top-link assessment-primary">Start New Health Assessment</a>
+            <a href="{{ url_for('patient_portal_section', section='appointments') }}" class="patient-top-link {{ 'active' if active_section == 'appointments' else '' }}">Appointments</a>
+            <a href="{{ url_for('patient_portal_section', section='doctors') }}" class="patient-top-link {{ 'active' if active_section == 'doctors' else '' }}">Doctors</a>
+            <a href="{{ url_for('patient_portal_section', section='reports') }}" class="patient-top-link {{ 'active' if active_section == 'reports' else '' }}">Reports</a>
+            <a href="{{ url_for('patient_portal_section', section='prescriptions') }}" class="patient-top-link {{ 'active' if active_section == 'prescriptions' else '' }}">Prescriptions</a>
+            <a href="{{ url_for('patient_portal_section', section='care-plans') }}" class="patient-top-link {{ 'active' if active_section == 'care-plans' else '' }}">Care Plans</a>
+            <a href="{{ url_for('patient_portal_section', section='timeline') }}" class="patient-top-link {{ 'active' if active_section == 'timeline' else '' }}">Timeline</a>
+            <a href="{{ url_for('patient_portal_section', section='emergency-help') }}" class="patient-top-link emergency">Emergency Assessment</a>
+            <a href="{{ url_for('patient_portal_section', section='profile') }}" class="patient-top-link {{ 'active' if active_section == 'profile' else '' }}">Profile</a>
+            <a href="{{ url_for('logout') }}" class="patient-top-link logout">Logout</a>
+        </nav>
+        <aside class="patient-sidebar">
+            <div class="patient-brand-card">
+                <span class="patient-brand-mark">DOCQ</span>
+                <div>
+                    <strong>Patient Portal</strong>
+                    <p>Start with health assessment, then manage your care journey.</p>
+                </div>
+            </div>
+            <nav class="patient-nav" aria-label="Patient portal navigation">
+                <a href="{{ assessment_url }}" class="patient-nav-link assessment-primary">AI Triage Assistant</a>
+                {% for section in sections %}
+                <a href="{{ section.href }}" class="patient-nav-link {{ 'active' if active_section == section.key else '' }}">{{ section.label }}</a>
+                {% endfor %}
+                <a href="{{ url_for('logout') }}" class="patient-nav-link logout">Logout</a>
+            </nav>
+            <a href="{{ url_for('patient_portal_section', section='emergency-help') }}" class="patient-emergency-button">Emergency Help</a>
+        </aside>
+
+        <main class="patient-main">
+            <header class="patient-hero">
+                <div>
+                    <span class="eyebrow">Welcome</span>
+                    <h1>Welcome, {{ patient_name }}</h1>
+                    <p>Start with a health assessment whenever symptoms change. Your appointments, doctors, prescriptions, and records stay connected to that care journey.</p>
+                    <div class="patient-actions">
+                        <a href="{{ assessment_url }}" class="patient-btn primary assessment-cta">Start Health Assessment</a>
+                        <a href="{{ assessment_url }}" class="patient-btn secondary">Continue Previous Assessment</a>
+                    </div>
+                </div>
+                <div class="patient-identity-card">
+                    <div><span>Patient ID</span><strong>{{ patient_id }}</strong></div>
+                    <div><span>Department</span><strong>{{ department }}</strong></div>
+                    <div><span>Assigned Doctor</span><strong>{{ assigned_doctor }}</strong></div>
+                    <div><span>Current Status</span><strong>{{ current_status }}</strong></div>
+                </div>
+            </header>
+
+            {% if active_section == 'dashboard' %}
+            <section class="assessment-hero-card">
+                <div>
+                    <span class="eyebrow">AI Triage Assistant</span>
+                    <h2>How are you feeling today?</h2>
+                    <p>Describe your symptoms and receive guidance on the next appropriate step.</p>
+                    <div class="patient-actions">
+                        <a href="{{ assessment_url }}" class="patient-btn primary assessment-cta">Start Health Assessment</a>
+                        <a href="{{ assessment_url }}" class="patient-btn secondary">Continue Previous Assessment</a>
+                    </div>
+                    {% if last_assessment %}
+                    <p class="assessment-continuity">Last activity: {{ last_assessment.date }} · {{ last_assessment.symptoms }}</p>
+                    {% endif %}
+                </div>
+                <div class="quick-symptom-panel">
+                    <strong>Quick symptom entry</strong>
+                    <div class="quick-symptom-grid">
+                        {% for symptom in quick_symptoms %}
+                        <a href="{{ assessment_url }}?symptoms={{ symptom|urlencode }}" class="quick-symptom-chip">{{ symptom }}</a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </section>
+
+            <section class="patient-summary-grid">
+                <article class="patient-summary-card">
+                    <span>Next Appointment</span>
+                    {% if next_appointment %}
+                    <strong>{{ next_appointment.appointment_date }}</strong>
+                    <p>Associated Assessment: {{ next_appointment.symptoms or 'Health assessment' }}</p>
+                    <p>{{ next_appointment.doctor_name }} · {{ next_appointment.specialty }}</p>
+                    {% else %}
+                    <strong>No upcoming appointment</strong>
+                    <p>Start a health assessment when you need support.</p>
+                    {% endif %}
+                </article>
+                <article class="patient-summary-card">
+                    <span>Last Consultation</span>
+                    {% if quick_summary.last_consultation %}
+                    <strong>{{ quick_summary.last_consultation.appointment_date }}</strong>
+                    <p>{{ quick_summary.last_consultation.doctor_name }}</p>
+                    {% else %}
+                    <strong>No past consultation</strong>
+                    <p>Your care history will appear here.</p>
+                    {% endif %}
+                </article>
+                <article class="patient-summary-card">
+                    <span>Active Prescription</span>
+                    {% if active_prescription %}
+                    <strong>{{ active_prescription.status|title }}</strong>
+                    <p>{{ active_prescription.doctor_name }}</p>
+                    {% else %}
+                    <strong>None active</strong>
+                    <p>Prescriptions from your doctor will appear here.</p>
+                    {% endif %}
+                </article>
+                <article class="patient-summary-card">
+                    <span>Uploaded Reports</span>
+                    <strong>{{ quick_summary.uploaded_reports }}</strong>
+                    <p>Reports attached to your appointments.</p>
+                </article>
+                <article class="patient-summary-card">
+                    <span>Pending Follow-Up</span>
+                    {% if quick_summary.pending_follow_up %}
+                    <strong>{{ quick_summary.pending_follow_up.follow_up_status|replace('-', ' ')|title }}</strong>
+                    <p>{{ quick_summary.pending_follow_up.doctor_name }}</p>
+                    {% else %}
+                    <strong>None pending</strong>
+                    <p>You are up to date.</p>
+                    {% endif %}
+                </article>
+            </section>
+
+            <section class="patient-panel">
+                <div class="patient-section-head"><span class="eyebrow">Assessment History</span><h2>Previous health assessments</h2></div>
+                <div class="patient-card-list">
+                    {% for assessment in assessment_history %}
+                    <article class="patient-list-card">
+                        <div>
+                            <strong>{{ assessment.symptoms }}</strong>
+                            <p>{{ assessment.date }} · {{ assessment.department }}</p>
+                            <p>Outcome: {{ assessment.outcome }} · Doctor: {{ assessment.doctor }}</p>
+                            <p>Appointment Status: {{ assessment.appointment_status }}</p>
+                        </div>
+                        <a href="{{ assessment_url }}?symptoms={{ assessment.symptoms|urlencode }}" class="patient-btn secondary">Reassess</a>
+                    </article>
+                    {% else %}
+                    <p class="patient-empty">No assessments yet. Start a health assessment to build your care history.</p>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section class="patient-two-column">
+                <article class="patient-panel">
+                    <div class="patient-section-head">
+                        <span class="eyebrow">My Doctor</span>
+                        <h2>Assigned care relationship</h2>
+                    </div>
+                    <div class="doctor-relationship-card">
+                        <div class="doctor-avatar">{{ assigned_doctor[:2] if assigned_doctor != 'Choose a doctor' else 'DR' }}</div>
+                        <div>
+                            <h3>{{ assigned_doctor }}</h3>
+                            <p>Department: {{ department }}</p>
+                            <p>Specialization: {{ doctor_profile.specialization if doctor_profile and doctor_profile.specialization else department }}</p>
+                            <p>Status: {{ doctor_profile.availability if doctor_profile else 'Availability shown after doctor assignment' }}</p>
+                            {% if next_appointment %}<p>Next Appointment: {{ next_appointment.appointment_date }} {{ next_appointment.slot_time or '' }}</p>{% endif %}
+                            <div class="patient-actions">
+                                <a href="{{ url_for('patient_portal_section', section='doctors') }}" class="patient-btn secondary">View Profile</a>
+                                <a href="{{ assessment_url }}" class="patient-btn primary assessment-cta">Start Assessment</a>
+                                <a href="{{ url_for('patient_portal_section', section='monitoring') }}" class="patient-btn secondary">Request Follow-Up</a>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="patient-panel">
+                    <div class="patient-section-head">
+                        <span class="eyebrow">Recommended Care</span>
+                        <h2>Department and next step</h2>
+                    </div>
+                    <div class="care-journey-card">
+                        <strong>{{ department }}</strong>
+                        <p>Based on your appointment history and recent care needs, this is your current care department.</p>
+                        <div class="patient-actions">
+                            <a href="{{ url_for('patient_portal_section', section='doctors') }}" class="patient-btn primary">Choose Doctor</a>
+                            <a href="{{ assessment_url }}" class="patient-btn secondary">Start New Health Assessment</a>
+                        </div>
+                    </div>
+                </article>
+            </section>
+            {% endif %}
+
+            {% if active_section == 'appointments' %}
+            <section class="patient-panel">
+                <div class="patient-section-head"><span class="eyebrow">Appointment Center</span><h2>Manage your visits</h2></div>
+                <div class="patient-actions"><a href="{{ assessment_url }}" class="patient-btn primary assessment-cta">Start Health Assessment</a></div>
+                {% for group, label in [('upcoming', 'Upcoming Appointments'), ('rescheduled', 'Rescheduled Appointments'), ('past', 'Past Appointments'), ('cancelled', 'Cancelled Appointments'), ('emergency', 'Emergency Visits')] %}
+                <h3 class="patient-subhead">{{ label }}</h3>
+                <div class="patient-card-list">
+                    {% for appointment in appointments[group] %}
+                    <article class="patient-list-card">
+                        <div>
+                            <strong>{{ appointment.doctor_name }}</strong>
+                            <p>{{ appointment.specialty }} · {{ appointment.appointment_date }} {{ appointment.slot_time or '' }}</p>
+                            <p>Status: {{ appointment.care_status }}</p>
+                            <p>Associated Assessment: {{ appointment.symptoms or 'Health assessment' }}</p>
+                            {% if appointment.status == 'rescheduled' %}<p>Appointment updated. Please check the new date and time shown here.</p>{% endif %}
+                        </div>
+                        <span class="patient-badge">{{ appointment.priority_label }}</span>
+                        <div class="patient-actions compact">
+                            <a href="{{ assessment_url }}?symptoms={{ appointment.symptoms|urlencode }}" class="patient-btn secondary">Reassess</a>
+                            <span class="patient-muted-action">Reschedule or cancel through clinic support</span>
+                        </div>
+                    </article>
+                    {% else %}
+                    <p class="patient-empty">No {{ label|lower }}.</p>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+            </section>
+            {% endif %}
+
+            {% if active_section == 'doctors' %}
+            <section class="patient-panel">
+                <div class="patient-section-head"><span class="eyebrow">Doctors</span><h2>Choose your care team</h2></div>
+                <p class="patient-panel-copy">You can continue with your assigned doctor, choose another available doctor in the same department, or use the earliest available slot.</p>
+                <div class="doctor-option-grid">
+                    {% for doctor in doctor_options %}
+                    <article class="doctor-option-card">
+                        <span class="patient-badge">{{ doctor.relationship_label }}</span>
+                        <h3>{{ doctor.display_name }}</h3>
+                        <p>{{ doctor.department }}</p>
+                        <p>Specialization: {{ doctor.specialization }}</p>
+                        <p>Next Available: {{ doctor.next_available_slot }}</p>
+                        <p>Workload: {{ doctor.workload_label }}</p>
+                        <p>Patient Rating: {{ doctor.patient_rating }}</p>
+                        <div class="patient-actions">
+                            <a href="{{ assessment_url }}" class="patient-btn primary">Choose Doctor</a>
+                            <a href="{{ assessment_url }}" class="patient-btn secondary">Earliest Available</a>
+                        </div>
+                    </article>
+                    {% else %}
+                    <p class="patient-empty">Doctors appear after your department is identified.</p>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
+
+            {% if active_section == 'reports' %}
+            <section class="patient-panel">
+                <div class="patient-section-head"><span class="eyebrow">Medical Reports</span><h2>Upload and view reports</h2></div>
+                <form class="patient-upload-card" action="{{ url_for('report_upload_api') }}" method="post" enctype="multipart/form-data">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                    <label>Associated Appointment</label>
+                    <select name="appointment_id" required>
+                        {% for appointment in appointments.all %}
+                        <option value="{{ appointment.id }}">{{ appointment.appointment_date }} · {{ appointment.doctor_name }} · {{ appointment.specialty }}</option>
+                        {% endfor %}
+                    </select>
+                    <label>Upload Report</label>
+                    <input type="file" name="report_file" accept=".pdf,.png,.jpg,.jpeg">
+                    <p>Accepted formats: PDF, PNG, JPG. Report review status appears after upload.</p>
+                    <button type="submit" class="patient-btn primary">Upload Report</button>
+                </form>
+                <div class="patient-card-list">
+                    {% for report in reports %}
+                    <article class="patient-list-card">
+                        <div>
+                            <strong>{{ report.file_name or report.report_type }}</strong>
+                            <p>Upload Date: {{ report.created_at[:10] }}</p>
+                            <p>Review Status: {{ report.ocr_status|replace('_', ' ')|title }}</p>
+                            <p>Associated Appointment: {{ report.appointment_date }} · {{ report.doctor_name }}</p>
+                        </div>
+                        <span class="patient-badge">Doctor Review Ready</span>
+                    </article>
+                    {% else %}
+                    <p class="patient-empty">No reports uploaded yet.</p>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
+
+            {% if active_section == 'prescriptions' %}
+            <section class="patient-panel">
+                <div class="patient-section-head"><span class="eyebrow">Prescriptions</span><h2>Medication instructions</h2></div>
+                <div class="patient-card-list">
+                    {% for prescription in prescriptions %}
+                    <article class="patient-list-card">
+                        <div>
+                            <strong>{{ prescription.doctor_name }}</strong>
+                            <p>Department: {{ prescription.department }}</p>
+                            <p>Issue Date: {{ prescription.created_at[:10] }}</p>
+                            <p>Instructions: {{ prescription.prescription_text }}</p>
+                        </div>
+                        <span class="patient-badge">{{ prescription.status|title }}</span>
+                    </article>
+                    {% else %}
+                    <p class="patient-empty">No prescriptions issued yet.</p>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
+
+            {% if active_section == 'care-plans' %}
+            <section class="patient-panel">
+                <div class="patient-section-head"><span class="eyebrow">Care Plans</span><h2>Your next steps</h2></div>
+                <div class="patient-card-list">
+                    {% for plan in care_plans %}
+                    <article class="patient-list-card">
+                        <div>
+                            <strong>{{ plan.doctor_name }}</strong>
+                            <p>Follow-Up Date: {{ plan.plan.follow_up_date if plan.plan.follow_up_date else 'To be advised by doctor' }}</p>
+                            <p>Medication Schedule: {{ plan.plan.medication_schedule if plan.plan.medication_schedule else 'See prescription instructions' }}</p>
+                            <p>Lifestyle Recommendations: {{ plan.plan.lifestyle if plan.plan.lifestyle else 'Not added yet' }}</p>
+                            <p>Warning Signs: {{ plan.plan.warning_signs if plan.plan.warning_signs else 'Contact care team if symptoms worsen' }}</p>
+                        </div>
+                        <span class="patient-badge">{{ plan.approval_status|replace('-', ' ')|title }}</span>
+                    </article>
+                    {% else %}
+                    <p class="patient-empty">No care plan has been released yet.</p>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
+
+            {% if active_section == 'monitoring' %}
+            <section class="patient-panel">
+                <div class="patient-section-head"><span class="eyebrow">Monitoring</span><h2>Daily health check-in</h2></div>
+                <form class="monitoring-card">
+                    <label>How are you feeling today?</label>
+                    <div class="segmented-options"><button type="button">Better</button><button type="button">Same</button><button type="button">Worse</button></div>
+                    <label>Any new symptoms?</label>
+                    <textarea placeholder="Describe any changes"></textarea>
+                    <label>Medication taken today?</label>
+                    <div class="segmented-options"><button type="button">Yes</button><button type="button">No</button></div>
+                    <p>Your responses help your care team understand progress. Check-in submission can be connected to monitoring reminders next.</p>
+                </form>
+                <h3 class="patient-subhead">Progress History</h3>
+                <div class="patient-card-list">
+                    {% for item in monitoring %}
+                    <article class="patient-list-card">
+                        <div><strong>{{ item.prompt }}</strong><p>{{ item.response_text or 'Awaiting response' }}</p><p>{{ item.updated_at[:10] }}</p></div>
+                        <span class="patient-badge">{{ item.status|title }}</span>
+                    </article>
+                    {% else %}
+                    <p class="patient-empty">No monitoring check-ins yet.</p>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
+
+            {% if active_section == 'timeline' %}
+            <section class="patient-panel">
+                <div class="patient-section-head"><span class="eyebrow">Medical Timeline</span><h2>Your health history</h2></div>
+                <div class="patient-timeline">
+                    {% for item in timeline %}
+                    <article class="patient-timeline-item">
+                        <span>{{ item.date }}</span>
+                        <div><strong>{{ item.title }}</strong><p>{{ item.details }}</p></div>
+                        <em>{{ item.status }}</em>
+                    </article>
+                    {% else %}
+                    <p class="patient-empty">Your timeline will build as you use DOCQ.</p>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
+
+            {% if active_section == 'profile' %}
+            <section class="patient-panel">
+                <div class="patient-section-head"><span class="eyebrow">Profile</span><h2>Personal and care information</h2></div>
+                {% if profile %}
+                <div class="profile-grid">
+                    <div><span>Name</span><strong>{{ profile.patient_name }}</strong></div>
+                    <div><span>Email</span><strong>{{ profile.patient_email }}</strong></div>
+                    <div><span>Phone</span><strong>{{ profile.phone }}</strong></div>
+                    <div><span>Age</span><strong>{{ profile.patient_age or 'Not recorded' }}</strong></div>
+                    <div><span>Chronic Conditions</span><strong>{{ profile.chronic_conditions or 'None recorded' }}</strong></div>
+                    <div><span>Allergies</span><strong>{{ profile.allergies or 'None recorded' }}</strong></div>
+                    <div><span>Emergency Contact</span><strong>{{ profile.emergency_contact or 'Not recorded' }}</strong></div>
+                </div>
+                {% else %}
+                <p class="patient-empty">No patient profile is linked yet.</p>
+                {% endif %}
+            </section>
+            {% endif %}
+
+            {% if active_section == 'emergency-help' %}
+            <section class="patient-panel emergency-panel">
+                <div class="patient-section-head"><span class="eyebrow">Emergency Help</span><h2>Get urgent support quickly</h2></div>
+                <p>If you have severe symptoms, seek emergency medical care immediately. DOCQ can help start a priority care request, notify contacts, and prepare emergency information for care teams.</p>
+                <div class="emergency-grid">
+                    {% for item in emergency_help %}
+                    <a href="{{ assessment_url }}?symptoms={{ item|urlencode }}" class="emergency-topic">{{ item }}</a>
+                    {% endfor %}
+                </div>
+                <div class="patient-actions">
+                    <a href="{{ assessment_url }}?symptoms=Emergency%20assessment" class="patient-btn danger">Start Emergency Assessment</a>
+                    <span class="patient-muted-action">Nearest emergency facility integration is prepared for a future release.</span>
+                </div>
+            </section>
+            {% endif %}
+
+            {% if active_section == 'settings' %}
+            <section class="patient-panel">
+                <div class="patient-section-head"><span class="eyebrow">Settings</span><h2>Communication preferences</h2></div>
+                <p class="patient-panel-copy">Manage account access, reminder preferences, and communication settings. Profile edits remain available through the patient profile API and can be connected to this page next.</p>
+                <div class="profile-grid">
+                    <div><span>SMS</span><strong>{{ 'Enabled' if workspace_context.communication_preferences.sms else 'Not enabled' }}</strong></div>
+                    <div><span>Email</span><strong>{{ 'Enabled' if workspace_context.communication_preferences.email else 'Not enabled' }}</strong></div>
+                    <div><span>WhatsApp</span><strong>{{ 'Enabled' if workspace_context.communication_preferences.whatsapp else 'Not enabled' }}</strong></div>
+                </div>
+            </section>
+            {% endif %}
+        </main>
+    </div>
+    <a href="{{ assessment_url }}" class="patient-floating-assessment">Health Assistant</a>
+    <nav class="patient-bottom-nav" aria-label="Mobile patient navigation">
+        <a href="{{ url_for('patient_dashboard') }}">Home</a>
+        <a href="{{ assessment_url }}" class="assessment-primary">Assessment</a>
+        <a href="{{ url_for('patient_portal_section', section='appointments') }}">Appointments</a>
+        <a href="{{ url_for('patient_portal_section', section='emergency-help') }}">Emergency</a>
+        <a href="{{ url_for('patient_portal_section', section='profile') }}">Profile</a>
+    </nav>
+</body>
+</html>

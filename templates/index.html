@@ -61,23 +61,6 @@
             color: var(--text-primary);
         }
 
-        .sidebar-collapsed {
-            width: 88px !important;
-        }
-
-        .sidebar-collapsed .sidebar-expand-text,
-        .sidebar-collapsed .sidebar-content,
-        .sidebar-collapsed .sidebar-section-label,
-        .sidebar-collapsed .sidebar-text-block,
-        .sidebar-collapsed .sidebar-view-link,
-        .sidebar-collapsed .sidebar-pill-wrap {
-            display: none !important;
-        }
-
-        .sidebar-collapsed .sidebar-collapsed-stack {
-            display: flex !important;
-        }
-
         .typing-dot {
             animation: typingPulse 1.2s ease-in-out infinite;
         }
@@ -148,7 +131,7 @@
         }
     </style>
 </head>
-<body class="min-h-screen bg-docq-base text-docq-text">
+<body class="h-screen overflow-hidden bg-docq-base text-docq-text">
     {% set profile = workspace_context.profile if workspace_context and workspace_context.profile else None %}
     <div id="workspace-profile"
         {% if profile %}
@@ -165,9 +148,11 @@
         data-is-patient-authenticated="{{ 'true' if current_user and current_user.role == 'patient' else 'false' }}"
         data-patient-email-verified="{{ 'true' if current_user and current_user.role == 'patient' and current_user.email else 'false' }}"
     ></div>
+    {% set portal = patient_portal_context if patient_portal_context else {} %}
+    {% set portal_appointments = portal.appointments if portal and portal.appointments else {} %}
 
-    <div class="mx-auto flex min-h-screen w-full max-w-[1600px] flex-col px-4 pb-4 pt-3 md:px-5">
-        <header class="flex h-[52px] items-center justify-between rounded-panel border border-white/10 bg-docq-surface px-4 shadow-panel">
+    <div class="mx-auto flex h-screen w-full max-w-[1680px] flex-col overflow-hidden px-4 pb-4 pt-3 md:px-5">
+        <header class="flex h-[52px] shrink-0 items-center justify-between rounded-panel border border-white/10 bg-docq-surface px-4 shadow-panel">
             <div class="flex items-center gap-3">
                 <a href="{{ url_for('access_portal') }}" class="text-sm font-medium tracking-[0.2em] text-docq-text no-underline">DOCQ</a>
             </div>
@@ -191,20 +176,29 @@
                 {% if current_user %}
                 <a href="{{ url_for('logout') }}" class="inline-flex h-9 items-center justify-center rounded-action border border-white/10 bg-docq-elevated px-4 text-sm font-medium text-docq-text no-underline">Sign out</a>
                 {% else %}
-                <a href="{{ url_for('patient_login') }}" class="inline-flex h-9 items-center justify-center rounded-action border border-white/10 bg-docq-elevated px-4 text-sm font-medium text-docq-text no-underline">Sign in</a>
+                <a href="{{ url_for('login') }}" class="inline-flex h-9 items-center justify-center rounded-action border border-white/10 bg-docq-elevated px-4 text-sm font-medium text-docq-text no-underline">Sign in</a>
                 {% endif %}
             </div>
         </header>
 
-        <section class="mt-3 rounded-panel border border-white/10 bg-docq-surface px-4 py-3">
+        <section class="mt-3 shrink-0 rounded-panel border border-white/10 bg-docq-surface px-4 py-3">
+            <div class="mb-3 flex flex-wrap items-center gap-2">
+                <button type="button" data-patient-panel="appointments" class="inline-flex h-9 items-center rounded-action border border-white/10 bg-docq-elevated px-4 text-sm font-medium text-docq-text">Appointments</button>
+                <button type="button" data-patient-panel="doctors" class="inline-flex h-9 items-center rounded-action border border-white/10 bg-docq-elevated px-4 text-sm font-medium text-docq-text">Doctors</button>
+                <button type="button" data-patient-panel="reports" class="inline-flex h-9 items-center rounded-action border border-white/10 bg-docq-elevated px-4 text-sm font-medium text-docq-text">Reports</button>
+                <button type="button" data-patient-panel="prescriptions" class="inline-flex h-9 items-center rounded-action border border-white/10 bg-docq-elevated px-4 text-sm font-medium text-docq-text">Prescriptions</button>
+                <button type="button" data-patient-panel="timeline" class="inline-flex h-9 items-center rounded-action border border-white/10 bg-docq-elevated px-4 text-sm font-medium text-docq-text">Timeline</button>
+                <button type="button" data-patient-panel="profile" class="inline-flex h-9 items-center rounded-action border border-white/10 bg-docq-elevated px-4 text-sm font-medium text-docq-text">Profile</button>
+                <button type="button" data-launch-symptom="Emergency assessment" class="inline-flex h-9 items-center rounded-action border border-[rgba(248,113,113,0.28)] bg-[rgba(248,113,113,0.12)] px-4 text-sm font-medium text-[#F87171]">Emergency Assessment</button>
+            </div>
             <div id="workflow-stepper" class="grid grid-cols-7 gap-2"></div>
         </section>
 
-        <div class="relative mt-4 flex min-h-0 flex-1 gap-4 overflow-hidden">
-            <aside id="patient-sidebar" class="sidebar-transition flex h-[calc(100vh-150px)] w-[280px] flex-col rounded-panel border border-white/10 bg-docq-surface px-5 py-5 shadow-panel transition-all duration-200 ease-out">
+        <div class="relative mt-4 flex min-h-0 flex-1 overflow-hidden">
+            <aside id="patient-sidebar" class="sidebar-transition snapshot-drawer-closed fixed left-4 top-[126px] z-50 flex h-[calc(100vh-142px)] w-[320px] flex-col rounded-panel border border-white/10 bg-docq-surface px-5 py-5 shadow-panel transition-transform duration-200 ease-out">
                 <div class="mb-5 flex items-center justify-between">
                     <span class="sidebar-expand-text text-[11px] font-medium uppercase tracking-[0.22em] text-docq-muted">Patient Snapshot</span>
-                    <button id="sidebar-toggle" type="button" class="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-docq-elevated text-docq-muted" aria-label="Collapse patient sidebar">
+                    <button id="sidebar-toggle" type="button" class="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-docq-elevated text-docq-muted" aria-label="Close patient snapshot">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg>
                     </button>
                 </div>
@@ -306,19 +300,11 @@
                     </div>
                 </div>
 
-                <div class="sidebar-collapsed-stack hidden flex-col items-center gap-4 pt-2">
-                    <div class="flex h-10 w-10 items-center justify-center rounded-full bg-docq-elevated text-sm font-medium">
-                        {{ (current_user.name[:1] ~ current_user.name.split(' ')[-1][:1]) if current_user and current_user.role == 'patient' else 'GP' }}
-                    </div>
-                    <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-[rgba(59,123,248,0.12)] text-docq-accent">A</span>
-                    <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-[rgba(251,191,36,0.12)] text-[#fbbf24]">C</span>
-                    <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-[rgba(248,113,113,0.12)] text-[#f87171]">!</span>
-                </div>
             </aside>
 
-            <main class="flex min-w-0 flex-1 flex-col rounded-panel border border-white/10 bg-docq-surface shadow-panel">
-                <div class="mx-auto flex h-full w-full max-w-[720px] flex-1 flex-col px-5 py-6">
-                    <div class="mb-6">
+            <main class="flex min-w-0 flex-1 flex-col overflow-hidden rounded-panel border border-white/10 bg-docq-surface shadow-panel">
+                <div class="mx-auto flex h-full min-h-0 w-full max-w-[90vw] flex-1 flex-col px-5 py-6">
+                    <div class="mb-5 shrink-0">
                         <h1 class="text-[28px] font-medium leading-tight text-docq-text">How can I help you today?</h1>
                         <div class="mt-4 flex items-center gap-3 rounded-card border border-[#34D399]/20 bg-[rgba(52,211,153,0.08)] px-4 py-3">
                             <span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[rgba(52,211,153,0.16)] text-sm text-docq-success">✓</span>
@@ -336,56 +322,62 @@
                                 <p class="text-sm font-medium text-docq-text">Create a remembered patient profile before booking</p>
                                 <p class="mt-1 text-sm leading-relaxed text-docq-muted">DOCQ will preserve triage context, reminders, and continuity-of-care when you convert this guest session into a patient account.</p>
                             </div>
-                            <button id="open-signup-modal" type="button" class="inline-flex h-11 shrink-0 items-center justify-center rounded-action bg-docq-accent px-5 text-sm font-medium text-white">Continue as Patient</button>
+                            <div class="flex shrink-0 flex-col gap-2">
+                                <button id="open-signup-modal" type="button" class="inline-flex h-11 items-center justify-center rounded-action bg-docq-accent px-5 text-sm font-medium text-white">Continue as Patient</button>
+                                <a href="{{ url_for('login', next=url_for('intake')) }}" class="text-center text-xs font-medium text-docq-accent no-underline">Already registered? Sign in</a>
+                            </div>
                         </div>
                         {% endif %}
                     </div>
 
-                    <div id="chat-stream" class="scrollbar-thin flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-6" aria-live="polite">
-                        <div class="message-enter flex items-end gap-3">
-                            <div class="flex h-9 w-9 items-center justify-center rounded-full bg-[rgba(59,123,248,0.12)] text-xs font-medium text-docq-accent">DQ</div>
-                            <div class="max-w-[85%] rounded-[16px] rounded-bl-[6px] border border-white/10 bg-docq-surface px-4 py-3">
-                                <p class="mb-1 text-[11px] uppercase tracking-[0.18em] text-docq-muted">DOCQ</p>
-                                <p class="text-sm leading-relaxed text-docq-text">How can I help you today?</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="mt-4 rounded-[16px] border border-white/10 bg-docq-surface p-4">
-                        <form id="intake-form" class="space-y-3">
-                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                            <div class="space-y-2">
-                                <div class="flex items-center justify-between">
-                                    <label for="symptoms" class="text-sm font-medium text-docq-text">Describe your concern</label>
-                                    <span id="chat-char-counter" class="text-xs text-docq-muted">0 / 1200</span>
+                    <div id="chat-shell" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+                        <div id="chat-stream" class="scrollbar-thin flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-2" aria-live="polite">
+                            <div class="message-enter flex items-end gap-3">
+                                <div class="flex h-9 w-9 items-center justify-center rounded-full bg-[rgba(59,123,248,0.12)] text-xs font-medium text-docq-accent">DQ</div>
+                                <div class="max-w-[92%] rounded-[16px] rounded-bl-[6px] border border-white/10 bg-docq-surface px-4 py-3">
+                                    <p class="mb-1 text-[11px] uppercase tracking-[0.18em] text-docq-muted">DOCQ</p>
+                                    <p class="text-sm leading-relaxed text-docq-text">How can I help you today?</p>
                                 </div>
-                                <textarea id="symptoms" name="symptoms" rows="4" maxlength="1200" required class="w-full resize-none rounded-card border border-white/10 bg-docq-elevated px-4 py-3 text-sm leading-relaxed text-docq-text outline-none placeholder:text-docq-muted focus:border-docq-accent focus:ring-2 focus:ring-[rgba(59,123,248,0.22)]" placeholder="Describe your concern in plain language..."></textarea>
                             </div>
-                            <button type="submit" class="inline-flex h-12 w-full items-center justify-center rounded-action bg-docq-accent text-sm font-medium text-white transition hover:brightness-110">Send to DOCQ</button>
-                        </form>
-                    </div>
-
-                    <div id="workspace-summary-strip" class="mt-4 hidden items-center justify-between rounded-card border border-white/10 bg-docq-elevated px-4 py-3">
-                        <div>
-                            <p class="text-[11px] uppercase tracking-[0.18em] text-docq-muted">Scheduling Readiness</p>
-                            <p id="summary-readiness-copy" class="mt-1 text-sm text-docq-text">DOCQ is still collecting enough information before scheduling.</p>
                         </div>
-                        <button id="open-booking-modal" type="button" class="inline-flex h-11 items-center justify-center rounded-action bg-docq-accent px-5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50" disabled>Book Appointment</button>
-                    </div>
 
-                    <div id="communication-timeline-strip" class="mt-4 hidden rounded-card border border-white/10 bg-docq-elevated px-4 py-3">
-                        <div class="flex items-center justify-between gap-4">
+                        <div id="workspace-summary-strip" class="mt-4 hidden shrink-0 items-center justify-between rounded-card border border-white/10 bg-docq-elevated px-4 py-3">
                             <div>
-                                <p class="text-[11px] uppercase tracking-[0.18em] text-docq-muted">Communication Status</p>
-                                <p id="communication-preference-copy" class="mt-1 text-sm text-docq-text">Delivery preferences and reminder acknowledgments will appear here.</p>
+                                <p class="text-[11px] uppercase tracking-[0.18em] text-docq-muted">Scheduling Readiness</p>
+                                <p id="summary-readiness-copy" class="mt-1 text-sm text-docq-text">DOCQ is still collecting enough information before scheduling.</p>
                             </div>
-                            <button id="open-profile-modal" type="button" class="inline-flex h-10 items-center justify-center rounded-action border border-white/10 bg-docq-surface px-4 text-sm font-medium text-docq-text">Preferences</button>
+                            <button id="open-booking-modal" type="button" class="inline-flex h-11 items-center justify-center rounded-action bg-docq-accent px-5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50" disabled>Book Appointment</button>
+                        </div>
+
+                        <div id="communication-timeline-strip" class="mt-4 hidden shrink-0 rounded-card border border-white/10 bg-docq-elevated px-4 py-3">
+                            <div class="flex items-center justify-between gap-4">
+                                <div>
+                                    <p class="text-[11px] uppercase tracking-[0.18em] text-docq-muted">Communication Status</p>
+                                    <p id="communication-preference-copy" class="mt-1 text-sm text-docq-text">Delivery preferences and reminder acknowledgments will appear here.</p>
+                                </div>
+                                <button type="button" data-patient-panel="profile" class="inline-flex h-10 items-center justify-center rounded-action border border-white/10 bg-docq-surface px-4 text-sm font-medium text-docq-text">Preferences</button>
+                            </div>
+                        </div>
+
+                        <div id="chat-input" class="mt-4 shrink-0 rounded-[16px] border border-white/10 bg-docq-surface p-4">
+                            <form id="intake-form" class="space-y-3">
+                                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                                <div class="space-y-2">
+                                    <div class="flex items-center justify-between">
+                                        <label for="symptoms" class="text-sm font-medium text-docq-text">Describe your concern</label>
+                                        <span id="chat-char-counter" class="text-xs text-docq-muted">0 / 1200</span>
+                                    </div>
+                                    <textarea id="symptoms" name="symptoms" rows="4" maxlength="1200" required class="w-full resize-none rounded-card border border-white/10 bg-docq-elevated px-4 py-3 text-sm leading-relaxed text-docq-text outline-none placeholder:text-docq-muted focus:border-docq-accent focus:ring-2 focus:ring-[rgba(59,123,248,0.22)]" placeholder="Describe your concern in plain language..."></textarea>
+                                </div>
+                                <button type="submit" class="inline-flex h-12 w-full items-center justify-center rounded-action bg-docq-accent text-sm font-medium text-white transition hover:brightness-110">Send to DOCQ</button>
+                            </form>
                         </div>
                     </div>
+
                 </div>
             </main>
 
-            <aside id="context-drawer" class="drawer-transition drawer-closed fixed right-4 top-[126px] z-30 h-[calc(100vh-142px)] w-[340px] overflow-hidden rounded-panel border border-white/10 bg-docq-surface shadow-panel">
+            <aside id="context-drawer" class="drawer-transition drawer-closed fixed right-0 top-0 z-[60] h-screen w-[420px] max-w-[calc(100vw-1rem)] overflow-hidden rounded-l-panel border-l border-white/10 bg-docq-surface shadow-panel">
                 <div class="flex h-full flex-col">
                     <div class="flex items-center justify-between border-b border-white/10 px-5 py-4">
                         <div>
@@ -427,11 +419,124 @@
                             <p class="text-[11px] font-medium uppercase tracking-[0.22em] text-docq-muted">Quick Aid</p>
                             <div id="drawer-quick-aid-body" class="mt-3 rounded-card bg-[rgba(59,123,248,0.12)] px-3 py-3 text-sm leading-relaxed text-docq-text"></div>
                         </section>
+                        <section id="drawer-patient-panel" class="hidden rounded-card border border-white/10 bg-docq-elevated p-4">
+                            <div id="drawer-patient-panel-body" class="space-y-3 text-sm text-docq-text"></div>
+                        </section>
                     </div>
                 </div>
             </aside>
         </div>
     </div>
+
+    <button type="button" data-launch-symptom="Emergency assessment" class="fixed bottom-5 right-5 z-40 inline-flex h-12 items-center justify-center rounded-action bg-[#F87171] px-5 text-sm font-medium text-[#0C0E14] shadow-panel">Emergency Assessment</button>
+
+    <template id="patient-panel-appointments">
+        <div class="space-y-4">
+            <div>
+                <p class="text-[11px] uppercase tracking-[0.22em] text-docq-muted">Appointments</p>
+                <h3 class="mt-1 text-base font-medium text-docq-text">Your care schedule</h3>
+            </div>
+            {% for appointment in portal_appointments.upcoming or [] %}
+            <div class="rounded-card border border-white/10 bg-docq-surface p-3">
+                <p class="font-medium text-docq-text">{{ appointment.doctor_name }}</p>
+                <p class="mt-1 text-sm text-docq-muted">{{ appointment.specialty }} · {{ appointment.appointment_date }} {{ appointment.slot_time or '' }}</p>
+                <p class="mt-1 text-xs text-docq-muted">Assessment: {{ appointment.symptoms or 'Health assessment' }}</p>
+            </div>
+            {% else %}
+            <p class="text-sm text-docq-muted">No upcoming appointments. Start an assessment to choose the right next step.</p>
+            {% endfor %}
+            <button type="button" data-launch-symptom="" class="inline-flex h-10 items-center rounded-action bg-docq-accent px-4 text-sm font-medium text-white">Start assessment to book</button>
+        </div>
+    </template>
+
+    <template id="patient-panel-doctors">
+        <div class="space-y-4">
+            <div>
+                <p class="text-[11px] uppercase tracking-[0.22em] text-docq-muted">My Doctor</p>
+                <h3 class="mt-1 text-base font-medium text-docq-text">{{ portal.assigned_doctor or 'Choose a doctor' }}</h3>
+            </div>
+            <div class="rounded-card border border-white/10 bg-docq-surface p-3">
+                <p class="text-sm text-docq-muted">Department</p>
+                <p class="mt-1 font-medium text-docq-text">{{ portal.department or 'Not assigned yet' }}</p>
+                {% if portal.quick_summary and portal.quick_summary.upcoming_appointment %}
+                <p class="mt-3 text-sm text-docq-muted">Next Visit</p>
+                <p class="mt-1 text-docq-text">{{ portal.quick_summary.upcoming_appointment.appointment_date }}</p>
+                {% endif %}
+            </div>
+            {% for doctor in portal.doctor_options or [] %}
+            <div class="rounded-card border border-white/10 bg-docq-surface p-3">
+                <p class="font-medium text-docq-text">{{ doctor.display_name }}</p>
+                <p class="text-sm text-docq-muted">{{ doctor.next_available_slot }} · {{ doctor.relationship_label }}</p>
+            </div>
+            {% endfor %}
+        </div>
+    </template>
+
+    <template id="patient-panel-reports">
+        <div class="space-y-4">
+            <div>
+                <p class="text-[11px] uppercase tracking-[0.22em] text-docq-muted">Reports</p>
+                <h3 class="mt-1 text-base font-medium text-docq-text">Uploads and doctor reviews</h3>
+            </div>
+            {% for report in portal.reports or [] %}
+            <div class="rounded-card border border-white/10 bg-docq-surface p-3">
+                <p class="font-medium text-docq-text">{{ report.file_name or report.report_type }}</p>
+                <p class="text-sm text-docq-muted">{{ report.created_at[:10] }} · {{ report.review_status|default(report.ocr_status)|replace('_', ' ')|title }}</p>
+            </div>
+            {% else %}
+            <p class="text-sm text-docq-muted">No reports uploaded yet. Reports can be attached after an appointment is created.</p>
+            {% endfor %}
+        </div>
+    </template>
+
+    <template id="patient-panel-prescriptions">
+        <div class="space-y-4">
+            <div>
+                <p class="text-[11px] uppercase tracking-[0.22em] text-docq-muted">Prescriptions</p>
+                <h3 class="mt-1 text-base font-medium text-docq-text">Medication instructions</h3>
+            </div>
+            {% for prescription in portal.prescriptions or [] %}
+            <div class="rounded-card border border-white/10 bg-docq-surface p-3">
+                <p class="font-medium text-docq-text">{{ prescription.doctor_name }}</p>
+                <p class="mt-1 text-sm text-docq-muted">{{ prescription.prescription_text }}</p>
+            </div>
+            {% else %}
+            <p class="text-sm text-docq-muted">No prescriptions issued yet.</p>
+            {% endfor %}
+        </div>
+    </template>
+
+    <template id="patient-panel-timeline">
+        <div class="space-y-4">
+            <div>
+                <p class="text-[11px] uppercase tracking-[0.22em] text-docq-muted">Medical Timeline</p>
+                <h3 class="mt-1 text-base font-medium text-docq-text">Assessment-linked care history</h3>
+            </div>
+            {% for item in portal.timeline or [] %}
+            <div class="rounded-card border border-white/10 bg-docq-surface p-3">
+                <p class="font-medium text-docq-text">{{ item.title }}</p>
+                <p class="text-sm text-docq-muted">{{ item.date }} · {{ item.details }}</p>
+            </div>
+            {% else %}
+            <p class="text-sm text-docq-muted">Your timeline builds as assessments, appointments, reports, and prescriptions are created.</p>
+            {% endfor %}
+        </div>
+    </template>
+
+    <template id="patient-panel-profile">
+        <div class="space-y-4">
+            <div>
+                <p class="text-[11px] uppercase tracking-[0.22em] text-docq-muted">Profile</p>
+                <h3 class="mt-1 text-base font-medium text-docq-text">{{ profile.patient_name if profile else 'Guest Patient' }}</h3>
+            </div>
+            <div class="rounded-card border border-white/10 bg-docq-surface p-3">
+                <p class="text-sm text-docq-muted">Age: {{ profile.patient_age if profile and profile.patient_age is not none else 'Not recorded' }}</p>
+                <p class="text-sm text-docq-muted">Conditions: {{ profile.chronic_conditions if profile and profile.chronic_conditions else 'None recorded' }}</p>
+                <p class="text-sm text-docq-muted">Allergies: {{ profile.allergies if profile and profile.allergies else 'None recorded' }}</p>
+            </div>
+            <p class="rounded-card border border-[rgba(59,123,248,0.22)] bg-[rgba(59,123,248,0.12)] px-3 py-3 text-sm leading-relaxed text-[#9FC2FF]">Profile details stay in this slide-out panel so the health assessment remains visible.</p>
+        </div>
+    </template>
 
     <div id="booking-modal" class="fixed inset-0 z-40 hidden items-center justify-center bg-black/50 px-4 backdrop-blur-sm">
         <div class="w-full max-w-[480px] rounded-[16px] border border-white/10 bg-docq-surface p-6 shadow-panel">
@@ -522,6 +627,7 @@
                     <label class="inline-flex items-center gap-2"><input id="prefers-whatsapp" type="checkbox" checked> WhatsApp</label>
                 </div>
                 <button id="signup-submit" type="submit" class="inline-flex h-12 w-full items-center justify-center rounded-action bg-docq-accent text-sm font-medium text-white">Create Profile and Continue</button>
+                <a href="{{ url_for('login', next=url_for('intake')) }}" class="inline-flex h-11 w-full items-center justify-center rounded-action border border-white/10 bg-docq-elevated text-sm font-medium text-docq-text no-underline">Already have an account? Sign in</a>
             </form>
             <p id="signup-feedback" class="mt-3 hidden rounded-card px-3 py-3 text-sm"></p>
         </div>

@@ -11,20 +11,12 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='docq.css') }}">
 </head>
 <body class="portal-body">
-    {% set role_tint = 'patient' if login_kind == 'patient' else 'doctor' if login_kind == 'doctor' else 'clinic' %}
+    {% set role_tint = 'clinic' %}
     <main class="portal-shell login-shell-modern">
         <section class="portal-hero-panel login-hero-panel">
             <div class="portal-copy">
                 <span class="portal-label">{{ login_config.eyebrow }}</span>
-                <h1>
-                    {% if login_kind == 'patient' %}
-                    Continue with remembered patient context
-                    {% elif login_kind == 'doctor' %}
-                    Open the live clinical review workspace
-                    {% else %}
-                    Enter the clinic operations workspace
-                    {% endif %}
-                </h1>
+                <h1>Sign in once. DOCQ routes your workspace automatically.</h1>
                 <p class="portal-subtext">
                     {{ login_config.description }}
                 </p>
@@ -35,82 +27,36 @@
             </div>
 
             <div class="feature-stack-modern">
-                {% if login_kind == 'patient' %}
                 <div class="feature-row">
                     <i data-lucide="check-circle-2" aria-hidden="true"></i>
                     <div>
-                        <strong>Reuse stored context</strong>
-                        <p>DOCQ can load your age, chronic conditions, allergies, and prior visit continuity.</p>
+                        <strong>Automatic role routing</strong>
+                        <p>Patients, doctors, admins, receptionists, operations, audit, and governance users use the same login.</p>
                     </div>
                 </div>
                 <div class="feature-row">
                     <i data-lucide="check-circle-2" aria-hidden="true"></i>
                     <div>
-                        <strong>Shorter triage conversations</strong>
-                        <p>Only missing intake details are requested before routing into risk and scheduling stages.</p>
+                        <strong>Strict workspace isolation</strong>
+                        <p>Patients see only their records. Doctors see assigned patients. Admin teams see hospital operations.</p>
                     </div>
                 </div>
                 <div class="feature-row">
                     <i data-lucide="check-circle-2" aria-hidden="true"></i>
                     <div>
-                        <strong>Safer continuity of care</strong>
-                        <p>DOCQ preserves prior care relationships and recommended specialist routing wherever possible.</p>
+                        <strong>Auditable access</strong>
+                        <p>Every login attempt records normalized email, role, password verification result, and routing decision.</p>
                     </div>
                 </div>
-                <p class="privacy-note">Privacy note: remembered information is used only to support triage continuity and booking decisions inside DOCQ.</p>
-                {% elif login_kind == 'doctor' %}
-                <div class="feature-row">
-                    <i data-lucide="check-circle-2" aria-hidden="true"></i>
-                    <div>
-                        <strong>Open routed cases</strong>
-                        <p>Review cases already enriched with policy decisions, care summaries, and queue context.</p>
-                    </div>
-                </div>
-                <div class="feature-row">
-                    <i data-lucide="check-circle-2" aria-hidden="true"></i>
-                    <div>
-                        <strong>Acknowledge live appointments</strong>
-                        <p>Move cases from DOCQ review into doctor-owned scheduling without leaving the inbox.</p>
-                    </div>
-                </div>
-                <div class="feature-row">
-                    <i data-lucide="check-circle-2" aria-hidden="true"></i>
-                    <div>
-                        <strong>Inspect triage rationale</strong>
-                        <p>Understand the risk summary, continuity hints, and quick-care signals before you respond.</p>
-                    </div>
-                </div>
-                {% else %}
-                <div class="feature-row">
-                    <i data-lucide="check-circle-2" aria-hidden="true"></i>
-                    <div>
-                        <strong>Coordinate bookings</strong>
-                        <p>Monitor queues, assign slots, and manage delivery workflows from the clinic control surface.</p>
-                    </div>
-                </div>
-                <div class="feature-row">
-                    <i data-lucide="check-circle-2" aria-hidden="true"></i>
-                    <div>
-                        <strong>Observe operational pressure</strong>
-                        <p>Track escalation load, review backlogs, automation health, and workflow continuity live.</p>
-                    </div>
-                </div>
-                <div class="feature-row">
-                    <i data-lucide="check-circle-2" aria-hidden="true"></i>
-                    <div>
-                        <strong>Keep staff in control</strong>
-                        <p>DOCQ recommendations stay visible, auditable, and easy to verify before scheduling actions.</p>
-                    </div>
-                </div>
-                {% endif %}
+                <p class="privacy-note">Privacy note: DOCQ only opens role-authorized workspace data after authentication.</p>
             </div>
         </section>
 
         <aside class="portal-quick-panel login-form-panel">
             <div class="portal-panel-copy">
-                <span class="portal-label">DOCQ {{ 'PATIENT' if login_kind == 'patient' else 'DOCTOR' if login_kind == 'doctor' else 'CLINIC' }} ACCESS</span>
-                <h2>{{ 'Patient Login' if login_kind == 'patient' else login_config.title }}</h2>
-                <p>{{ 'Secure access to remembered care context and conversational triage.' if login_kind == 'patient' else 'Continue into the DOCQ workspace for your role.' }}</p>
+                <span class="portal-label">DOCQ UNIFIED ACCESS</span>
+                <h2>Login</h2>
+                <p>Use your account email and password. DOCQ detects the role and opens the correct workspace.</p>
             </div>
             <div class="login-readiness-note">
                 <strong>Enterprise-ready access.</strong>
@@ -130,7 +76,7 @@
 
                 <div class="field-group">
                     <label for="email">Email address</label>
-                    <input id="email" type="email" name="email" value="{{ remembered_email if login_kind == 'patient' else '' }}" placeholder="{{ 'patient@clinic.com' if login_kind == 'patient' else 'name@clinic.com' }}" required autocomplete="email">
+                    <input id="email" type="email" name="email" value="{{ remembered_email }}" placeholder="name@example.com" required autocomplete="email">
                     <p class="field-meta">Use the email linked to your DOCQ account.</p>
                 </div>
 
@@ -152,16 +98,12 @@
 
                 <button type="submit" class="portal-btn primary {{ role_tint }}">Login</button>
 
-                {% if login_kind == 'patient' %}
                 <div class="patient-auth-assist">
                     <a href="{{ url_for('patient_signup') }}" class="portal-btn secondary patient patient-auth-cta">New user? Sign up</a>
                 </div>
                 <div class="auth-link-stack">
                     <a href="{{ url_for('patient_forgot_password') }}" class="micro-link">Forgot password?</a>
                 </div>
-                {% else %}
-                <a href="{{ url_for('access_portal') }}" class="micro-link">Forgot password?</a>
-                {% endif %}
 
                 <div class="auth-divider"><span>or</span></div>
 

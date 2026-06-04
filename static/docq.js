@@ -7,6 +7,7 @@ const closeDrawerButton = document.getElementById("close-drawer");
 const drawerStageTitle = document.getElementById("drawer-stage-title");
 const sidebar = document.getElementById("patient-sidebar");
 const sidebarToggle = document.getElementById("sidebar-toggle");
+const snapshotDrawerOpenButton = document.getElementById("snapshot-drawer-open");
 const chatCharCounter = document.getElementById("chat-char-counter");
 const summaryStrip = document.getElementById("workspace-summary-strip");
 const summaryReadinessCopy = document.getElementById("summary-readiness-copy");
@@ -34,6 +35,8 @@ const careTeamSection = document.getElementById("drawer-care-team");
 const careTeamGrid = document.getElementById("drawer-care-team-grid");
 const quickAidSection = document.getElementById("drawer-quick-aid");
 const quickAidBody = document.getElementById("drawer-quick-aid-body");
+const patientPanelSection = document.getElementById("drawer-patient-panel");
+const patientPanelBody = document.getElementById("drawer-patient-panel-body");
 const workspaceProfile = document.getElementById("workspace-profile");
 const workspaceSession = document.getElementById("workspace-session");
 const openSignupModalButton = document.getElementById("open-signup-modal");
@@ -248,6 +251,15 @@ function updateCharacterCounter() {
     chatCharCounter.textContent = `${symptomsField.value.length} / 1200`;
 }
 
+function scrollChatToBottom() {
+    if (!chatStream) {
+        return;
+    }
+    requestAnimationFrame(() => {
+        chatStream.scrollTop = chatStream.scrollHeight;
+    });
+}
+
 function createMessageBubble(content, role = "bot", meta = "") {
     const wrapper = document.createElement("div");
     wrapper.className = `message-enter flex items-end gap-3 ${role === "user" ? "justify-end" : ""}`;
@@ -259,8 +271,8 @@ function createMessageBubble(content, role = "bot", meta = "") {
     }
     const bubble = document.createElement("div");
     bubble.className = role === "user"
-        ? "max-w-[85%] rounded-[16px] rounded-br-[6px] border border-white/10 bg-[#3B7BF8] px-4 py-3 text-white"
-        : "max-w-[85%] rounded-[16px] rounded-bl-[6px] border border-white/10 bg-[#13171F] px-4 py-3";
+        ? "max-w-[78%] rounded-[16px] rounded-br-[6px] border border-white/10 bg-[#3B7BF8] px-4 py-3 text-white"
+        : "max-w-[92%] rounded-[16px] rounded-bl-[6px] border border-white/10 bg-[#13171F] px-4 py-3";
     bubble.innerHTML = `
         <p class="mb-1 text-[11px] uppercase tracking-[0.18em] ${role === "user" ? "text-white/70" : "text-[#8B90A0]"}">${role === "user" ? "Patient" : "DOCQ"}</p>
         <p class="text-sm leading-relaxed">${escapeHtml(content)}</p>
@@ -276,7 +288,7 @@ function addBubble(content, role = "bot", meta = "") {
     }
     const bubble = createMessageBubble(content, role, meta);
     chatStream.appendChild(bubble);
-    chatStream.scrollTop = chatStream.scrollHeight;
+    scrollChatToBottom();
     return bubble;
 }
 
@@ -299,7 +311,7 @@ function addActionBubble(content, actions = []) {
         bubble.lastElementChild?.insertAdjacentElement("afterend", actionRow);
     }
     chatStream.appendChild(bubble);
-    chatStream.scrollTop = chatStream.scrollHeight;
+    scrollChatToBottom();
     return bubble;
 }
 
@@ -312,7 +324,7 @@ function showTypingIndicator() {
     wrapper.dataset.typing = "true";
     wrapper.innerHTML = `
         <div class="flex h-9 w-9 items-center justify-center rounded-full bg-[rgba(59,123,248,0.12)] text-xs font-medium text-[#3B7BF8]">DQ</div>
-        <div class="max-w-[85%] rounded-[16px] rounded-bl-[6px] border border-white/10 bg-[#13171F] px-4 py-3">
+        <div class="max-w-[92%] rounded-[16px] rounded-bl-[6px] border border-white/10 bg-[#13171F] px-4 py-3">
             <p class="mb-1 text-[11px] uppercase tracking-[0.18em] text-[#8B90A0]">DOCQ</p>
             <div class="flex items-center gap-2">
                 <span class="typing-dot h-2 w-2 rounded-full bg-[#3B7BF8]"></span>
@@ -322,7 +334,7 @@ function showTypingIndicator() {
         </div>
     `;
     chatStream.appendChild(wrapper);
-    chatStream.scrollTop = chatStream.scrollHeight;
+    scrollChatToBottom();
     return wrapper;
 }
 
@@ -338,6 +350,39 @@ function openDrawer(stageKey) {
     drawer.classList.remove("drawer-closed");
     drawer.classList.add("drawer-open");
     drawerStageTitle.textContent = workflowStageMeta[stageKey]?.label || "Care Guidance";
+}
+
+function launchAssessmentWithSymptom(symptom = "") {
+    const normalizedSymptom = String(symptom || "").trim();
+    if (symptomsField && normalizedSymptom) {
+        symptomsField.value = normalizedSymptom;
+        updateCharacterCounter();
+    }
+    if (normalizedSymptom && intakeForm) {
+        intakeForm.requestSubmit();
+        return;
+    }
+    symptomsField?.focus();
+}
+
+function openPatientPanel(panelKey) {
+    const template = document.getElementById(`patient-panel-${panelKey}`);
+    if (!template || !patientPanelSection || !patientPanelBody) {
+        return;
+    }
+    toggleSection(automationSection, false);
+    toggleSection(memorySection, false);
+    toggleSection(careTeamSection, false);
+    toggleSection(quickAidSection, false);
+    patientPanelBody.innerHTML = template.innerHTML;
+    toggleSection(patientPanelSection, true);
+    openDrawer("patient");
+    drawerStageTitle.textContent = template.content?.querySelector("h3")?.textContent || "Patient Workspace";
+    patientPanelBody.querySelectorAll("[data-launch-symptom]").forEach((node) => {
+        node.addEventListener("click", () => {
+            launchAssessmentWithSymptom(node.dataset.launchSymptom || "");
+        });
+    });
 }
 
 function closeDrawer() {
@@ -557,6 +602,7 @@ function renderAutomationDrawer(stageKey, data) {
 }
 
 function renderContextDrawer(stageKey, data) {
+    toggleSection(patientPanelSection, false);
     renderAutomationDrawer(stageKey, data);
     renderMemoryDrawer();
     renderCareTeamDrawer(data);
@@ -982,13 +1028,30 @@ async function runIntake(message) {
     }
 }
 
+function setSnapshotDrawerOpen(isOpen) {
+    if (!sidebar) {
+        return;
+    }
+    sidebar.classList.toggle("snapshot-drawer-open", isOpen);
+    sidebar.classList.toggle("snapshot-drawer-closed", !isOpen);
+    snapshotDrawerOpenButton?.classList.toggle("hidden", isOpen);
+}
+
 if (sidebarToggle && sidebar) {
     sidebarToggle.addEventListener("click", () => {
-        sidebar.classList.toggle("sidebar-collapsed");
+        setSnapshotDrawerOpen(false);
     });
 }
 
+snapshotDrawerOpenButton?.addEventListener("click", () => setSnapshotDrawerOpen(true));
+
 closeDrawerButton?.addEventListener("click", closeDrawer);
+document.querySelectorAll("[data-patient-panel]").forEach((node) => {
+    node.addEventListener("click", () => openPatientPanel(node.dataset.patientPanel));
+});
+document.querySelectorAll("[data-launch-symptom]").forEach((node) => {
+    node.addEventListener("click", () => launchAssessmentWithSymptom(node.dataset.launchSymptom || ""));
+});
 openBookingModalButton?.addEventListener("click", showBookingModal);
 closeBookingModalButton?.addEventListener("click", hideBookingModal);
 openSignupModalButton?.addEventListener("click", showSignupModal);
@@ -1033,6 +1096,22 @@ if (intakeForm) {
         symptomsField.value = "";
         updateCharacterCounter();
     });
+}
+
+const launchSymptom = new URLSearchParams(window.location.search).get("symptoms");
+if (launchSymptom && symptomsField && intakeForm) {
+    const normalizedLaunchSymptom = launchSymptom.trim();
+    if (normalizedLaunchSymptom) {
+        symptomsField.value = normalizedLaunchSymptom;
+        updateCharacterCounter();
+        const launchKey = `docq-assessment-launch:${normalizedLaunchSymptom}`;
+        if (sessionStorage.getItem(launchKey) !== "started") {
+            sessionStorage.setItem(launchKey, "started");
+            window.setTimeout(() => {
+                intakeForm.requestSubmit();
+            }, 250);
+        }
+    }
 }
 
 if (bookingForm) {

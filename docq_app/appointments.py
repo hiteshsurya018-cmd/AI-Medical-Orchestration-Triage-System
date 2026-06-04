@@ -152,6 +152,9 @@ def init_db() -> None:
                 branch TEXT,
                 doctor_name TEXT,
                 specialty TEXT,
+                specialization TEXT,
+                status TEXT NOT NULL DEFAULT 'active',
+                availability TEXT NOT NULL DEFAULT 'Available',
                 phone TEXT,
                 phone_encrypted TEXT,
                 email_verified_at TEXT,
@@ -167,6 +170,9 @@ def init_db() -> None:
             "branch": "ALTER TABLE users ADD COLUMN branch TEXT",
             "doctor_name": "ALTER TABLE users ADD COLUMN doctor_name TEXT",
             "specialty": "ALTER TABLE users ADD COLUMN specialty TEXT",
+            "specialization": "ALTER TABLE users ADD COLUMN specialization TEXT",
+            "status": "ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
+            "availability": "ALTER TABLE users ADD COLUMN availability TEXT NOT NULL DEFAULT 'Available'",
             "phone": "ALTER TABLE users ADD COLUMN phone TEXT",
             "phone_encrypted": "ALTER TABLE users ADD COLUMN phone_encrypted TEXT",
             "email_verified_at": "ALTER TABLE users ADD COLUMN email_verified_at TEXT",
@@ -463,6 +469,8 @@ def init_db() -> None:
                 report_type TEXT NOT NULL DEFAULT 'unknown',
                 file_name TEXT,
                 ocr_status TEXT NOT NULL DEFAULT 'pending',
+                review_status TEXT NOT NULL DEFAULT 'pending',
+                review_notes TEXT,
                 lab_values_json TEXT,
                 abnormal_findings_json TEXT,
                 created_at TEXT NOT NULL,
@@ -470,6 +478,14 @@ def init_db() -> None:
             )
             """
         )
+        report_columns = {row["name"] for row in connection.execute("PRAGMA table_info(report_analyses)").fetchall()}
+        report_alters = {
+            "review_status": "ALTER TABLE report_analyses ADD COLUMN review_status TEXT NOT NULL DEFAULT 'pending'",
+            "review_notes": "ALTER TABLE report_analyses ADD COLUMN review_notes TEXT",
+        }
+        for col, stmt in report_alters.items():
+            if col not in report_columns:
+                connection.execute(stmt)
 
         connection.execute(
             """
@@ -1539,6 +1555,77 @@ def seed_slots(enabled: bool, days: int = 5) -> None:
                     )
 
 
+def seed_slots_for_doctor(doctor_name: str, specialty: str, branch: str, days: int = 14) -> None:
+    today = dt.date.today()
+    with get_connection() as connection:
+        for offset in range(days):
+            slot_date = (today + dt.timedelta(days=offset)).isoformat()
+            for slot_time in DEFAULT_SLOT_TIMES:
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO doctor_slots (doctor_name, specialty, branch, slot_date, slot_time, status)
+                    VALUES (?, ?, ?, ?, ?, 'available')
+                    """,
+                    (doctor_name, specialty, branch, slot_date, slot_time),
+                )
+
+
+def fetch_doctor_users(include_inactive: bool = False) -> list[sqlite3.Row]:
+    query = """
+        SELECT id, name, email, role, tenant_key, org_unit, branch, doctor_name, specialty,
+               COALESCE(specialization, '') AS specialization,
+               COALESCE(status, 'active') AS status,
+               COALESCE(availability, 'Available') AS availability,
+               phone, created_at
+        FROM users
+        WHERE role IN ('doctor', 'clinician')
+    """
+    params: list[object] = []
+    if not include_inactive:
+        query += " AND COALESCE(status, 'active') = 'active'"
+    query += " ORDER BY specialty ASC, name ASC"
+    with get_connection() as connection:
+        return connection.execute(query, params).fetchall()
+
+
+def update_doctor_user(
+    user_id: int,
+    *,
+    name: str | None = None,
+    department: str | None = None,
+    branch: str | None = None,
+    specialization: str | None = None,
+    status: str | None = None,
+    availability: str | None = None,
+) -> None:
+    fields = []
+    values: list[object] = []
+    if name is not None:
+        fields.append("name = ?")
+        values.append(name.strip())
+    if department is not None:
+        specialty = normalize_specialty(department)
+        fields.extend(["specialty = ?", "org_unit = ?"])
+        values.extend([specialty, specialty])
+    if branch is not None:
+        fields.append("branch = ?")
+        values.append(branch.strip())
+    if specialization is not None:
+        fields.append("specialization = ?")
+        values.append(specialization.strip())
+    if status is not None:
+        fields.append("status = ?")
+        values.append(status.strip() or "active")
+    if availability is not None:
+        fields.append("availability = ?")
+        values.append(availability.strip() or "Available")
+    if not fields:
+        return
+    values.append(int(user_id))
+    with get_connection() as connection:
+        connection.execute(f"UPDATE users SET {', '.join(fields)} WHERE id = ? AND role IN ('doctor', 'clinician')", values)
+
+
 def log_action(actor_name: str, actor_role: str, action: str, entity_type: str, entity_id: int | None, details: str) -> None:
     with get_connection() as connection:
         connection.execute(
@@ -2196,6 +2283,18 @@ def fetch_report_analyses(appointment_id: int, limit: int = 10) -> list[sqlite3.
         ).fetchall()
 
 
+def update_report_review(report_id: int, *, review_status: str, review_notes: str = "") -> None:
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE report_analyses
+            SET review_status = ?, review_notes = ?
+            WHERE id = ?
+            """,
+            (review_status.strip() or "reviewed", review_notes.strip(), int(report_id)),
+        )
+
+
 def record_report_analysis(
     *,
     appointment_id: int,
@@ -2252,6 +2351,49 @@ def fetch_care_plans(appointment_id: int, limit: int = 5) -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def save_care_plan(
+    appointment_id: int,
+    *,
+    doctor_name: str,
+    medication_plan: str = "",
+    lifestyle_guidance: str = "",
+    diet_recommendations: str = "",
+    monitoring_tasks: str = "",
+    warning_signs: str = "",
+    follow_up_schedule: str = "",
+    approval_status: str = "approved",
+) -> int:
+    now = dt.datetime.now().isoformat(timespec="seconds")
+    plan = {
+        "medication_plan": medication_plan.strip(),
+        "medication_schedule": medication_plan.strip(),
+        "lifestyle_guidance": lifestyle_guidance.strip(),
+        "lifestyle": lifestyle_guidance.strip(),
+        "diet_recommendations": diet_recommendations.strip(),
+        "monitoring_tasks": monitoring_tasks.strip(),
+        "warning_signs": warning_signs.strip(),
+        "follow_up_schedule": follow_up_schedule.strip(),
+        "follow_up_date": follow_up_schedule.strip(),
+    }
+    with get_connection() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO care_plans (appointment_id, tenant_key, doctor_name, plan_json, approval_status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                int(appointment_id),
+                get_current_tenant_key(),
+                doctor_name,
+                json.dumps(plan, sort_keys=True),
+                approval_status.strip() or "approved",
+                now,
+                now,
+            ),
+        )
+        return int(cursor.lastrowid)
+
+
 def fetch_monitoring_checkins(appointment_id: int, limit: int = 10) -> list[sqlite3.Row]:
     with get_connection() as connection:
         return connection.execute(
@@ -2294,8 +2436,8 @@ def fetch_patient_appointments(phone: str = "", patient_email: str = "", limit: 
     if not clauses:
         return []
     query = f"""
-        SELECT id, patient_name, patient_email, phone, specialty, doctor_name, appointment_date, slot_time,
-               status, follow_up_status, queue_state, triage_summary
+        SELECT id, patient_name, patient_email, phone, symptoms, specialty, doctor_name, appointment_date, slot_time,
+               urgency, status, follow_up_status, queue_state, triage_summary
         FROM appointments
         WHERE {' OR '.join(clauses)}
         ORDER BY appointment_date DESC, slot_time DESC, created_at DESC
@@ -2338,7 +2480,47 @@ def recommend_doctor_for_patient(specialty: str, phone: str = "", patient_email:
 
 
 def _doctor_account_by_name(doctor_name: str) -> dict[str, object] | None:
+    with get_connection() as connection:
+        doctor = connection.execute(
+            """
+            SELECT name, email, role, branch, doctor_name, specialty, phone
+            FROM users
+            WHERE doctor_name = ?
+              AND role IN ('doctor', 'clinician')
+              AND COALESCE(status, 'active') = 'active'
+            LIMIT 1
+            """,
+            (doctor_name,),
+        ).fetchone()
+    if doctor:
+        return {
+            "name": str(doctor["name"] or doctor_name),
+            "email": str(doctor["email"] or ""),
+            "role": str(doctor["role"] or "doctor"),
+            "branch": str(doctor["branch"] or "Mysore Central"),
+            "doctor_name": str(doctor["doctor_name"] or doctor_name),
+            "specialty": str(doctor["specialty"] or "General"),
+            "phone": doctor["phone"],
+        }
     return next((doctor for doctor in DOCTOR_ACCOUNTS if str(doctor["doctor_name"]) == doctor_name), None)
+
+
+def _active_doctor_pool() -> list[dict[str, object]]:
+    managed_doctors = [
+        {
+            "doctor_name": str(row["doctor_name"] or row["name"]),
+            "specialty": str(row["specialty"] or "General"),
+            "branch": str(row["branch"] or "Mysore Central"),
+            "name": str(row["name"] or row["doctor_name"]),
+            "email": str(row["email"] or ""),
+            "role": str(row["role"] or "doctor"),
+            "phone": row["phone"],
+        }
+        for row in fetch_doctor_users(include_inactive=False)
+    ]
+    if managed_doctors:
+        return managed_doctors
+    return [dict(doctor) for doctor in DOCTOR_ACCOUNTS]
 
 
 def recommend_doctor_matches(specialty: str, phone: str = "", patient_email: str = "") -> list[dict[str, object]]:
@@ -2358,7 +2540,7 @@ def recommend_doctor_matches(specialty: str, phone: str = "", patient_email: str
             "specialty": doctor["specialty"],
             "branch": doctor["branch"],
         }
-        for doctor in DOCTOR_ACCOUNTS
+        for doctor in _active_doctor_pool()
         if normalize_specialty(str(doctor["specialty"])) == normalized_specialty
     ]
     if not doctor_pool:
@@ -2908,7 +3090,7 @@ def reassign_appointment_doctor(appointment_id: int, doctor_name: str, reason: s
     appointment = get_appointment(appointment_id)
     if not appointment:
         raise ValueError("Appointment not found.")
-    doctor = next((item for item in DOCTOR_ACCOUNTS if item["doctor_name"] == doctor_name), None)
+    doctor = _doctor_account_by_name(doctor_name)
     if doctor is None:
         raise ValueError("Selected doctor is not available in DOCQ.")
     requested_date = str(appointment["appointment_date"] or dt.date.today().isoformat())

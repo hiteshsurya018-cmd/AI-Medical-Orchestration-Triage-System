@@ -4,27 +4,36 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>DOCQ | Doctor Inbox</title>
+    <title>DOCQ | Doctor Command Center</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='docq.css') }}">
 </head>
-<body class="dashboard-body">
-    <div class="dashboard-shell">
-        <header class="dashboard-header">
+<body class="doctor-command-body">
+    <div class="doctor-command-shell">
+        <header class="doctor-hero">
             <div>
-                <span class="eyebrow">Doctor Inbox</span>
+                <span class="eyebrow">Clinical Command Center</span>
                 <h1>{{ metrics.doctor_name }}</h1>
-                <p class="dashboard-subtitle">Review routed cases, acknowledge appointments, and monitor your live slots.</p>
+                <p>{{ department }} workspace for patient review, reports, prescriptions, care plans, monitoring, and follow-ups.</p>
             </div>
+            <form method="post" class="doctor-availability-card">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="update-availability">
+                <label for="availability">Doctor Availability</label>
+                <select id="availability" name="availability">
+                    {% for option in availability_options %}
+                    <option value="{{ option }}" {% if doctor_profile and doctor_profile.availability == option %}selected{% endif %}>{{ option }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="doctor-btn primary">Update</button>
+            </form>
             <div class="header-actions">
-                <button type="button" class="secondary-link" data-theme-toggle>Theme</button>
-                <a href="{{ url_for('docs') }}" class="secondary-link">Docs</a>
-                <a href="{{ url_for('onboarding') }}" class="secondary-link">Onboarding</a>
-                <a href="{{ url_for('logout') }}" class="primary-link">Logout</a>
+                <a href="{{ url_for('logout') }}" class="doctor-btn secondary">Logout</a>
             </div>
         </header>
+
         {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
             {% for category, message in messages %}
@@ -32,164 +41,257 @@
             {% endfor %}
         {% endif %}
         {% endwith %}
-        <section class="stats-grid">
-            <article class="stat-card"><span>Pending Inbox</span><strong>{{ metrics.pending_count }}</strong></article>
-            <article class="stat-card"><span>Total Appointments</span><strong>{{ metrics.appointments|length }}</strong></article>
-            <article class="stat-card"><span>Live Slots</span><strong>{{ metrics.slots|length }}</strong></article>
-            <article class="stat-card"><span>Recent Cases</span><strong>{{ metrics.recent_cases|length }}</strong></article>
+
+        <section class="doctor-overview-grid">
+            <article><span>Today's Appointments</span><strong>{{ overview.todays_appointments }}</strong></article>
+            <article><span>Emergency Cases</span><strong>{{ overview.emergency_cases }}</strong></article>
+            <article><span>Pending Reviews</span><strong>{{ overview.pending_reviews }}</strong></article>
+            <article><span>Unread Reports</span><strong>{{ overview.unread_reports }}</strong></article>
+            <article><span>Follow-Up Patients</span><strong>{{ overview.follow_up_patients }}</strong></article>
+            <article><span>Monitoring Alerts</span><strong>{{ overview.monitoring_alerts }}</strong></article>
+            <article><span>Department Queue</span><strong>{{ overview.department_queue }}</strong></article>
         </section>
-        <section class="dashboard-layout expanded">
-            <article class="dashboard-card table-card">
-                <div class="section-head compact"><span class="eyebrow">Pending Cases</span><h2>Doctor acknowledgment queue</h2></div>
-                {% for item in metrics.pending_appointments %}
-                {% set appointment = item.appointment %}
-                <form method="post" class="inbox-card" enctype="multipart/form-data">
-                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                    <input type="hidden" name="appointment_id" value="{{ appointment.id }}">
-                    <div class="inbox-summary">
-                        {% if appointment.urgency == 'Emergency' or item.emergency_escalations %}
-                        <div class="status-banner error">
-                            <strong>CRITICAL CASE</strong>
-                            <span>Risk Level: {{ appointment.urgency }} | Risk Score: {{ appointment.priority_score }} | Escalation {{ 'Active' if item.emergency_escalations else 'Pending' }}</span>
-                        </div>
-                        {% endif %}
-                        <strong>{{ appointment.patient_name }}</strong>
-                        <span>{{ appointment.appointment_date }} at {{ appointment.slot_time }}{% if appointment.patient_age %} | Age {{ appointment.patient_age }}{% endif %}</span>
-                        <p>{{ appointment.symptoms }}</p>
-                        <p><strong>Severity:</strong> {{ appointment.severity }} | <strong>Urgency:</strong> {{ appointment.urgency }}</p>
-                        <p><strong>Specialty:</strong> {{ appointment.specialty }} | <strong>Selection method:</strong> {{ 'Patient Choice' if appointment.doctor_selection_mode == 'patient_selected' else 'DOCQ Recommendation' }}</p>
-                        <p>{{ appointment.triage_summary or 'No triage summary available.' }}</p>
-                        {% if appointment.medical_history %}
-                        <p><strong>Medical history:</strong> {{ appointment.medical_history }}</p>
-                        {% endif %}
-                        {% if appointment.quick_aid %}
-                        <p><strong>Quick aid already advised:</strong> {{ appointment.quick_aid }}</p>
-                        {% endif %}
-                        {% if appointment.clinical_questionnaire_json and appointment.clinical_questionnaire_json != '{}' %}
-                        <p><strong>Clinical questionnaire:</strong> {{ appointment.clinical_questionnaire_json }}</p>
-                        {% endif %}
-                        {% if item.questionnaire.answers %}
-                        <div class="history-block">
-                            <span class="notification-target">{{ item.questionnaire.label or 'Clinical Questionnaire' }}</span>
-                            {% for key, value in item.questionnaire.answers.items() %}
-                            <p><strong>{{ key.replace('_', ' ')|title }}:</strong> {{ value }}</p>
-                            {% endfor %}
-                        </div>
-                        {% endif %}
-                        {% if item.risk_breakdown %}
-                        <div class="history-block">
-                            <span class="notification-target">Risk Explanation</span>
-                            {% for factor in item.risk_breakdown %}
-                            <p>+{{ factor.points }} {{ factor.label }}{% if factor.value %} | {{ factor.value }}{% endif %}</p>
-                            {% endfor %}
-                        </div>
-                        {% endif %}
-                        {% if item.latest_vitals %}
-                        <div class="history-block">
-                            <span class="notification-target">Latest Vitals</span>
-                            <p><strong>SpO2:</strong> {{ item.latest_vitals.spo2 or 'Not recorded' }} | <strong>Heart Rate:</strong> {{ item.latest_vitals.heart_rate or 'Not recorded' }}</p>
-                            <p><strong>BP:</strong> {{ item.latest_vitals.blood_pressure or 'Not recorded' }} | <strong>Temp:</strong> {{ item.latest_vitals.temperature_f or 'Not recorded' }} F</p>
-                            <p><strong>Vitals risk:</strong> {{ item.latest_vitals.risk_level }}</p>
-                        </div>
-                        {% endif %}
-                        <div class="history-block">
-                            <span class="notification-target">Report Analysis</span>
-                            {% for report in item.report_analyses %}
-                            <p><strong>{{ report.report_type }}</strong> | {{ report.ocr_status }} | {{ report.file_name }} | {{ report.created_at }}</p>
-                            {% if report.lab_values %}
-                            <p>Extracted values:
-                                {% for key, lab in report.lab_values.items() %}
-                                {{ lab.label }} {{ lab.value }} {{ lab.unit }}{% if not loop.last %}; {% endif %}
+
+        <section class="doctor-layout">
+            <main class="doctor-main">
+                <article class="doctor-panel" id="my-patients">
+                    <div class="doctor-section-head">
+                        <span class="eyebrow">My Patients</span>
+                        <h2>Assigned patient queue</h2>
+                    </div>
+                    <div class="doctor-patient-grid">
+                        {% for card in patient_cards %}
+                        {% set appointment = card.appointment %}
+                        <section class="doctor-patient-card">
+                            <div class="doctor-patient-topline">
+                                <div>
+                                    <strong>{{ appointment.patient_name }}</strong>
+                                    <p>Age {{ appointment.patient_age or 'Not recorded' }} · {{ appointment.specialty }}</p>
+                                </div>
+                                <span class="doctor-priority {{ 'emergency' if appointment.urgency == 'Emergency' else 'high' if appointment.urgency == 'High' else 'routine' }}">{{ appointment.priority_label }}</span>
+                            </div>
+                            <div class="doctor-card-facts">
+                                <div><span>Assigned Doctor</span><strong>{{ appointment.doctor_name }}</strong></div>
+                                <div><span>Last Visit</span><strong>{{ card.last_visit or 'First visit' }}</strong></div>
+                                <div><span>Next Appointment</span><strong>{{ card.next_appointment or 'Not scheduled' }}</strong></div>
+                                <div><span>Status</span><strong>{{ appointment.current_status }}</strong></div>
+                            </div>
+                            <div class="doctor-actions">
+                                <a href="#record-{{ appointment.id }}" class="doctor-btn primary">Open Record</a>
+                                <a href="#notes-{{ appointment.id }}" class="doctor-btn secondary">Add Notes</a>
+                                <a href="#prescription-{{ appointment.id }}" class="doctor-btn secondary">Issue Prescription</a>
+                                <a href="#care-plan-{{ appointment.id }}" class="doctor-btn secondary">Generate Care Plan</a>
+                                <a href="#follow-up-{{ appointment.id }}" class="doctor-btn secondary">Schedule Follow-Up</a>
+                            </div>
+                        </section>
+                        {% else %}
+                        <p class="doctor-empty">No assigned patients yet.</p>
+                        {% endfor %}
+                    </div>
+                </article>
+
+                <article class="doctor-panel" id="clinical-records">
+                    <div class="doctor-section-head">
+                        <span class="eyebrow">Patient Clinical Record</span>
+                        <h2>Single-page patient review</h2>
+                    </div>
+                    {% for item in clinical_records %}
+                    {% set appointment = item.appointment %}
+                    <section class="clinical-record-card" id="record-{{ appointment.id }}">
+                        <header>
+                            <div>
+                                <span class="eyebrow">{{ appointment.specialty }}</span>
+                                <h3>{{ appointment.patient_name }}</h3>
+                                <p>{{ appointment.current_status }} · {{ appointment.appointment_date }} {{ appointment.slot_time or '' }}</p>
+                            </div>
+                            <span class="doctor-priority {{ 'emergency' if appointment.urgency == 'Emergency' else 'high' if appointment.urgency == 'High' else 'routine' }}">{{ appointment.priority_label }}</span>
+                        </header>
+                        <div class="clinical-record-grid">
+                            <section>
+                                <h4>Patient Summary</h4>
+                                <p>{{ appointment.triage_summary or appointment.symptoms }}</p>
+                                <p>Department: {{ appointment.specialty }}</p>
+                                <p>Contact: {{ appointment.phone }}</p>
+                            </section>
+                            <section>
+                                <h4>Medical History</h4>
+                                <p>{{ appointment.medical_history or 'No medical history recorded.' }}</p>
+                                {% for history in item.history[:3] %}
+                                <p>{{ history.appointment_date }} · {{ history.specialty }} · {{ history.status }}</p>
                                 {% endfor %}
-                            </p>
-                            {% endif %}
-                            {% if report.abnormal_findings %}
-                            {% for finding in report.abnormal_findings %}
-                            <p class="text-danger">{{ finding.message }} ({{ finding.value }} {{ finding.unit }})</p>
-                            {% endfor %}
-                            {% endif %}
-                            {% else %}
-                            <p>Report analysis pipeline is ready; no reports uploaded yet.</p>
-                            {% endfor %}
+                            </section>
+                            <section>
+                                <h4>Vitals</h4>
+                                {% if item.latest_vitals %}
+                                <p>SpO2: {{ item.latest_vitals.spo2 or 'Not recorded' }}</p>
+                                <p>Heart Rate: {{ item.latest_vitals.heart_rate or 'Not recorded' }}</p>
+                                <p>Blood Pressure: {{ item.latest_vitals.blood_pressure or 'Not recorded' }}</p>
+                                <p>Temperature: {{ item.latest_vitals.temperature_f or 'Not recorded' }} F</p>
+                                {% else %}
+                                <p>No vitals recorded.</p>
+                                {% endif %}
+                            </section>
+                            <section>
+                                <h4>Reports</h4>
+                                {% for report in item.report_analyses[:3] %}
+                                <p>{{ report.report_type }} · {{ report.review_status|replace('-', ' ')|title }}</p>
+                                {% else %}
+                                <p>No reports uploaded.</p>
+                                {% endfor %}
+                            </section>
+                            <section>
+                                <h4>Prescriptions</h4>
+                                <p>{{ item.prescription.prescription_text if item.prescription else 'No prescription issued yet.' }}</p>
+                            </section>
+                            <section>
+                                <h4>Monitoring</h4>
+                                <p>{{ item.monitoring_checkins|length }} check-ins recorded.</p>
+                            </section>
+                            <section>
+                                <h4>Timeline</h4>
+                                <p>{{ appointment.created_at[:10] }} · Appointment created</p>
+                                {% if appointment.acknowledged_at %}<p>{{ appointment.acknowledged_at[:10] }} · Doctor reviewed</p>{% endif %}
+                            </section>
+                            <section id="notes-{{ appointment.id }}">
+                                <h4>Doctor Notes</h4>
+                                <p>{{ appointment.doctor_notes or 'No notes yet.' }}</p>
+                            </section>
                         </div>
-                        <div class="history-block">
-                            <span class="notification-target">Monitoring & Care Plan</span>
-                            <p>Care plans: {{ item.care_plans|length }} | Monitoring check-ins: {{ item.monitoring_checkins|length }}</p>
-                        </div>
-                        {% if appointment.history_summary %}
-                        <p><strong>DOCQ history signal:</strong> {{ appointment.history_summary }}</p>
-                        {% endif %}
-                        {% if item.history %}
-                        <div class="history-block">
-                            <span class="notification-target">Patient History</span>
-                            {% for history in item.history %}
-                            <p>{{ history.appointment_date }} {{ history.slot_time or '' }} | {{ history.specialty }} | {{ history.status }}</p>
-                            {% endfor %}
-                        </div>
-                        {% endif %}
-                        {% if item.clinical_diary %}
-                        <p><strong>Latest patient diary:</strong> {{ item.clinical_diary.diary_text }}</p>
-                        {% endif %}
-                        {% if item.prescription %}
-                        <p><strong>Latest prescription:</strong> {{ item.prescription.prescription_text }}</p>
-                        {% endif %}
-                        <textarea name="doctor_notes" rows="3" placeholder="Doctor notes">{{ appointment.doctor_notes or '' }}</textarea>
-                        <textarea name="doctor_diary" rows="4" placeholder="Patient diary / clinical observation">{{ item.clinical_diary.diary_text if item.clinical_diary else '' }}</textarea>
-                        <textarea name="prescription_text" rows="4" placeholder="Prescription to send to patient via WhatsApp">{{ item.prescription.prescription_text if item.prescription else '' }}</textarea>
-                        <div class="history-block">
-                            <span class="notification-target">Upload Report</span>
-                            <input type="file" name="report_file" accept=".txt,.csv,.pdf">
-                            <textarea name="report_text" rows="3" placeholder="Or paste OCR/report text: Hemoglobin 8.5, WBC 12000, Fasting glucose 140"></textarea>
-                            <p>Supported MVP: CBC, Blood Sugar, Lipid Profile, Thyroid. PDF text layer is parsed when readable; scanned PDFs remain OCR pending.</p>
-                        </div>
-                    </div>
-                    <div class="inbox-actions">
-                        <button type="submit" name="action" value="acknowledge" class="primary-btn">Acknowledge</button>
-                        <button type="submit" name="action" value="follow-up" class="secondary-link">Mark Follow-up</button>
-                        <button type="submit" name="action" value="save-notes" class="secondary-link">Save Notes</button>
-                        <button type="submit" name="action" value="save-clinical-record" class="secondary-link">Save Diary + Prescription</button>
-                        <button type="submit" name="action" value="upload-report" class="secondary-link">Upload Report</button>
-                        <button type="submit" name="action" value="follow-up" class="secondary-link">Request Callback</button>
-                        <button type="submit" name="action" value="follow-up" class="secondary-link">Generate Care Plan</button>
-                    </div>
-                </form>
-                {% else %}<p class="empty-state">No pending cases.</p>{% endfor %}
-            </article>
-            <article class="dashboard-card">
-                <div class="section-head compact"><span class="eyebrow">Live Slots</span><h2>Doctor calendar capacity</h2></div>
-                <div class="bar-list">
-                    {% for item in metrics.slot_breakdown %}
-                    <div class="bar-row"><span>{{ item.label }}</span><div class="bar-track"><div class="bar-fill teal-fill" style="width: {{ item.width }}%"></div></div><strong>{{ item.value }}</strong></div>
-                    {% else %}<p class="empty-state">No slot summary yet.</p>{% endfor %}
-                </div>
-                <div class="slot-grid">
-                    {% for slot in metrics.slots[:18] %}
-                    <div class="slot-chip {{ slot.status }}">{{ slot.slot_date }} {{ slot.slot_time }}</div>
+
+                        <form method="post" class="doctor-form-card" id="prescription-{{ appointment.id }}">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="appointment_id" value="{{ appointment.id }}">
+                            <label>Add notes</label>
+                            <textarea name="doctor_diary" rows="3" placeholder="Clinical observation or follow-up note">{{ item.clinical_diary.diary_text if item.clinical_diary else '' }}</textarea>
+                            <label>Create or edit prescription</label>
+                            <textarea name="prescription_text" rows="3" placeholder="Medication, dose, timing, instructions">{{ item.prescription.prescription_text if item.prescription else '' }}</textarea>
+                            <div class="doctor-actions">
+                                <button type="submit" name="action" value="save-clinical-record" class="doctor-btn primary">Save Notes & Prescription</button>
+                                <button type="submit" name="action" value="acknowledge" class="doctor-btn secondary">Mark Reviewed</button>
+                                <button type="submit" name="action" value="follow-up" class="doctor-btn secondary" id="follow-up-{{ appointment.id }}">Schedule Follow-Up</button>
+                            </div>
+                        </form>
+
+                        <form method="post" class="doctor-form-card" id="care-plan-{{ appointment.id }}">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="appointment_id" value="{{ appointment.id }}">
+                            <h4>Care Plan Generator</h4>
+                            <textarea name="medication_plan" rows="2" placeholder="Medication plan"></textarea>
+                            <textarea name="lifestyle_guidance" rows="2" placeholder="Lifestyle guidance"></textarea>
+                            <textarea name="diet_recommendations" rows="2" placeholder="Diet recommendations"></textarea>
+                            <textarea name="monitoring_tasks" rows="2" placeholder="Monitoring tasks"></textarea>
+                            <textarea name="warning_signs" rows="2" placeholder="Warning signs"></textarea>
+                            <input name="follow_up_schedule" placeholder="Follow-up schedule">
+                            <button type="submit" name="action" value="save-care-plan" class="doctor-btn primary">Generate Care Plan</button>
+                        </form>
+                    </section>
+                    {% else %}
+                    <p class="doctor-empty">No clinical records available.</p>
                     {% endfor %}
-                </div>
-                <div class="notification-list">
-                    {% for item in metrics.notifications %}
-                    <div class="notification-item">
-                        <div><span class="notification-target">{{ item.channel }}</span><p>{{ item.message }}</p></div>
-                        <div class="notification-meta"><span>{{ item.status }}</span></div>
+                </article>
+
+                <article class="doctor-panel" id="report-review">
+                    <div class="doctor-section-head">
+                        <span class="eyebrow">Report Review Center</span>
+                        <h2>Review uploaded reports</h2>
                     </div>
-                    {% else %}<p class="empty-state">No doctor notifications yet.</p>{% endfor %}
-                </div>
-                <div class="history-list">
-                    <span class="eyebrow">Recent Cases</span>
-                    {% for item in metrics.recent_cases %}
-                    <div class="audit-item">
-                        <strong>{{ item.appointment.patient_name }}</strong>
-                        <span>{{ item.appointment.appointment_date }} {{ item.appointment.slot_time or '' }} | {{ item.appointment.status }}</span>
-                        <p>{{ item.appointment.doctor_notes or 'No doctor notes yet.' }}</p>
-                        <p>{{ item.clinical_diary.diary_text if item.clinical_diary else 'No patient diary yet.' }}</p>
-                        <p>{{ item.prescription.prescription_text if item.prescription else 'No prescription issued yet.' }}</p>
+                    <div class="doctor-card-list">
+                        {% for report in reports %}
+                        <form method="post" class="doctor-list-card">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="review-report">
+                            <input type="hidden" name="appointment_id" value="{{ report.appointment_id }}">
+                            <input type="hidden" name="report_id" value="{{ report.id }}">
+                            <div>
+                                <strong>{{ report.patient_name }}</strong>
+                                <p>{{ report.report_type }} · {{ report.file_name or 'Uploaded report' }}</p>
+                                <p>Status: {{ report.review_status|replace('-', ' ')|title }}</p>
+                                {% for finding in report.abnormal_findings %}
+                                <p class="doctor-alert-text">{{ finding.message }}</p>
+                                {% endfor %}
+                            </div>
+                            <textarea name="review_notes" rows="2" placeholder="Add report notes">{{ report.review_notes or '' }}</textarea>
+                            <select name="review_status">
+                                <option value="reviewed">Mark Reviewed</option>
+                                <option value="approved">Approve Report</option>
+                                <option value="abnormal-flagged">Flag Abnormalities</option>
+                                <option value="retest-requested">Request Retest</option>
+                            </select>
+                            <button type="submit" class="doctor-btn primary">Save Review</button>
+                        </form>
+                        {% else %}
+                        <p class="doctor-empty">No reports waiting for review.</p>
+                        {% endfor %}
                     </div>
-                    {% else %}<p class="empty-state">No recent cases.</p>{% endfor %}
-                </div>
-            </article>
+                </article>
+            </main>
+
+            <aside class="doctor-side">
+                <article class="doctor-panel">
+                    <div class="doctor-section-head"><span class="eyebrow">Department Workspace</span><h2>{{ department }}</h2></div>
+                    <p>Assigned Patients: {{ patient_cards|length }}</p>
+                    <p>Department Reports: {{ reports|length }}</p>
+                    <p>Department Queue: {{ overview.department_queue }}</p>
+                    <p>Department Emergencies: {{ overview.emergency_cases }}</p>
+                </article>
+
+                <article class="doctor-panel">
+                    <div class="doctor-section-head"><span class="eyebrow">Monitoring Alerts</span><h2>Priority sorted</h2></div>
+                    <div class="doctor-card-list compact">
+                        {% for item in monitoring_alerts %}
+                        <div class="doctor-list-card compact">
+                            <strong>{{ item.patient_name }}</strong>
+                            <p>{{ item.prompt }}</p>
+                            <p>{{ item.response_text or item.status }}</p>
+                        </div>
+                        {% else %}
+                        <p class="doctor-empty">No monitoring alerts.</p>
+                        {% endfor %}
+                    </div>
+                </article>
+
+                <article class="doctor-panel">
+                    <div class="doctor-section-head"><span class="eyebrow">Follow-Up Management</span><h2>Patients to revisit</h2></div>
+                    <div class="doctor-card-list compact">
+                        {% for item in follow_up_cases %}
+                        {% set appointment = item.appointment %}
+                        <div class="doctor-list-card compact">
+                            <strong>{{ appointment.patient_name }}</strong>
+                            <p>{{ appointment.follow_up_status|replace('-', ' ')|title }} · {{ appointment.appointment_date }}</p>
+                        </div>
+                        {% else %}
+                        <p class="doctor-empty">No follow-ups pending.</p>
+                        {% endfor %}
+                    </div>
+                </article>
+
+                <article class="doctor-panel">
+                    <div class="doctor-section-head"><span class="eyebrow">Prescription Workspace</span><h2>Active medications</h2></div>
+                    <div class="doctor-card-list compact">
+                        {% for prescription in prescriptions %}
+                        <div class="doctor-list-card compact">
+                            <strong>{{ prescription.patient_name }}</strong>
+                            <p>{{ prescription.prescription_text }}</p>
+                            <span class="doctor-priority routine">{{ prescription.status|title }}</span>
+                        </div>
+                        {% else %}
+                        <p class="doctor-empty">No active prescriptions.</p>
+                        {% endfor %}
+                    </div>
+                </article>
+
+                <article class="doctor-panel">
+                    <div class="doctor-section-head"><span class="eyebrow">Doctor Performance</span><h2>Care delivery</h2></div>
+                    <div class="doctor-performance-grid">
+                        <div><span>Patients Seen</span><strong>{{ performance.patients_seen }}</strong></div>
+                        <div><span>Completed</span><strong>{{ performance.appointments_completed }}</strong></div>
+                        <div><span>Response Time</span><strong>{{ performance.average_response_time }}</strong></div>
+                        <div><span>Emergency Managed</span><strong>{{ performance.emergency_cases_managed }}</strong></div>
+                        <div><span>Follow-Up</span><strong>{{ performance.follow_up_compliance }}</strong></div>
+                    </div>
+                </article>
+            </aside>
         </section>
     </div>
-    <script src="{{ url_for('static', filename='enterprise.js') }}"></script>
 </body>
 </html>

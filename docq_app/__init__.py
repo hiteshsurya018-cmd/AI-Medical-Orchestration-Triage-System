@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 from flask import Flask, Response, flash, g, jsonify, redirect, render_template, request, session, stream_with_context, url_for
 
-from .appointments import build_drift_detection_summary, build_patient_workspace_context, build_workflow_event_record, build_workflow_model_diff, build_workflow_replay, build_workflow_replay_diff, cancel_appointment, create_appointment, escalate_appointment_priority, escalate_stale_reviews, fetch_appointments, fetch_audit_logs, fetch_available_dates, fetch_due_reminders, fetch_notifications_for_appointment, fetch_prescriptions, fetch_workflow_events, get_appointment, get_patient_profile, init_db, link_patient_profile_to_user, log_action, mark_reminder_delivery, reassign_appointment_doctor, recommend_doctor_matches, record_automation_run, record_patient_vitals, record_report_analysis, record_security_event, reschedule_appointment, save_clinical_diary, save_prescription_record, seed_slots, update_appointment_status, update_doctor_notes, upsert_patient_profile
+from .appointments import build_drift_detection_summary, build_patient_workspace_context, build_workflow_event_record, build_workflow_model_diff, build_workflow_replay, build_workflow_replay_diff, cancel_appointment, create_appointment, escalate_appointment_priority, escalate_stale_reviews, fetch_appointments, fetch_audit_logs, fetch_available_dates, fetch_care_plans, fetch_doctor_users, fetch_due_reminders, fetch_latest_prescription, fetch_monitoring_checkins, fetch_patient_appointments, fetch_notifications_for_appointment, fetch_prescriptions, fetch_report_analyses, fetch_workflow_events, get_appointment, get_patient_profile, init_db, link_patient_profile_to_user, log_action, mark_reminder_delivery, reassign_appointment_doctor, recommend_doctor_matches, record_automation_run, record_patient_vitals, record_report_analysis, record_security_event, reschedule_appointment, save_care_plan, save_clinical_diary, save_prescription_record, seed_slots, seed_slots_for_doctor, update_appointment_status, update_doctor_notes, update_doctor_user, update_report_review, upsert_patient_profile
 from .analytics import build_operational_analytics
 from .api_docs import build_docs_context, build_openapi_spec
 from .auth import consume_auth_token, create_user, get_user_by_email, get_user_by_id, inject_globals, is_safe_redirect_target, issue_auth_token, load_current_user, login_required, login_user, mark_user_email_verified, role_required, seed_users, update_user_password, validate_csrf, verify_password
@@ -31,7 +31,7 @@ from .governance_runtime import run_continuous_governance
 from .human_coordination import assign_queue_item
 from .integrations.adapters import google_calendar_adapter, outlook_calendar_adapter, sendgrid_email_adapter, slack_webhook_adapter, twilio_sms_adapter, twilio_whatsapp_adapter, webhook_delivery_adapter
 from .load_testing import run_benchmark_suite
-from .ml import init_models, train_models
+from .ml import init_models, normalize_specialty, train_models
 from .model_evaluation import get_model_evaluation_diff, get_model_evaluation_drift, get_model_evaluation_promotion_gate, get_model_evaluation_results, get_model_evaluation_run, list_model_evaluations, run_offline_model_evaluation
 from .notifications import notify_prescription_ready, process_notification_queue, retry_notification, send_due_reminders
 from .observability import begin_request_trace, finalize_request_trace, metrics_registry
@@ -103,7 +103,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         role = str(g.user["role"])
         if role in admin_ops_roles or role in {"admin", "operations", "clinic_admin", "hospital_admin"}:
             return True
-        if role == "doctor":
+        if role in {"doctor", "clinician"}:
             return str(appointment["doctor_name"] or "") == str(g.user.get("doctor_name") or "")
         if role == "patient":
             return str(appointment["patient_email"] or "").lower() == str(g.user.get("email") or "").lower()
@@ -205,64 +205,99 @@ def create_app(test_config: dict | None = None) -> Flask:
         return inject_globals()
 
     LOGIN_ROLE_CONFIG = {
-        "clinic": {
-            "title": "Clinic Workspace Login",
-            "eyebrow": "DOCQ Clinic Access",
-            "heading": "Enter the clinic operations workspace",
-            "description": "Reception and admin teams manage booking, queue review, analytics, and automation here.",
-            "allowed_roles": {"admin", "receptionist", "operations", "governance_analyst", "auditor", "hospital_admin", "clinic_admin", "governance_reviewer", "compliance_officer", "operations_manager", "department_supervisor"},
-            "demo_accounts": [
-                {"label": "Admin Demo", "email": "admin@docq.local", "password": "admin123"},
-                {"label": "Reception Demo", "email": "desk@docq.local", "password": "desk123"},
-            ],
-        },
-        "doctor": {
-            "title": "Doctor Login",
-            "eyebrow": "DOCQ Doctor Access",
-            "heading": "Open the doctor inbox",
-            "description": "Doctors review routed cases, read DOCQ summaries, and acknowledge live appointments from this secure view.",
-            "allowed_roles": {"doctor", "clinician"},
-            "demo_accounts": [
-                {"label": "Doctor Demo", "email": "cardio@docq.local", "password": "doctor123"},
-            ],
-        },
-        "patient": {
-            "title": "Patient Login",
-            "eyebrow": "DOCQ Patient Access",
-            "heading": "Continue with remembered patient context",
-            "description": "Patients sign in here so DOCQ can reuse age, chronic conditions, and prior visit context during triage.",
-            "allowed_roles": {"patient"},
+        "unified": {
+            "title": "Unified Login",
+            "eyebrow": "DOCQ Unified Access",
+            "heading": "Sign in once. DOCQ routes your workspace automatically.",
+            "description": "Patients, doctors, admins, clinic staff, operations, audit, and governance teams use the same authentication page.",
+            "allowed_roles": {
+                "admin",
+                "receptionist",
+                "operations",
+                "governance_analyst",
+                "auditor",
+                "hospital_admin",
+                "clinic_admin",
+                "governance_reviewer",
+                "compliance_officer",
+                "operations_manager",
+                "department_supervisor",
+                "doctor",
+                "clinician",
+                "patient",
+            },
             "demo_accounts": [
                 {"label": "Patient Demo", "email": "patient@docq.local", "password": "patient123"},
+                {"label": "Doctor Demo", "email": "cardio@docq.local", "password": "doctor123"},
+                {"label": "Admin Demo", "email": "admin@docq.local", "password": "admin123"},
             ],
         },
     }
 
-    def _login_view(login_kind: str):
-        config_item = LOGIN_ROLE_CONFIG[login_kind]
+    def _workspace_for_role(role: str) -> str:
+        if role == "patient":
+            return url_for("intake")
+        if role in {"doctor", "clinician"}:
+            return url_for("doctor_inbox")
+        if role in {"auditor", "governance_analyst", "governance_reviewer", "compliance_officer"}:
+            return url_for("admin_dashboard")
+        return url_for("dashboard")
+
+    def _login_view(login_kind: str = "unified"):
+        config_item = LOGIN_ROLE_CONFIG["unified"]
         if request.method == "POST":
-            user = get_user_by_email(request.form.get("email", ""))
+            raw_email = request.form.get("email", "")
+            normalized_email = str(raw_email or "").strip().lower()
+            user = get_user_by_email(normalized_email)
             password = request.form.get("password", "")
-            if not user or not verify_password(user["password_hash"], password):
+            password_valid = bool(user and verify_password(user["password_hash"], password))
+            user_status = str(user["status"] if user and "status" in user.keys() else "active").lower()
+            record_security_event(
+                f"login-attempt-{login_kind}-{int(time.time() * 1000)}",
+                action="login_attempt_diagnostic",
+                decision="observed",
+                payload={
+                    "email": normalized_email,
+                    "login_kind": login_kind,
+                    "user_found": bool(user),
+                    "role": user["role"] if user else "",
+                    "status": user_status if user else "",
+                    "password_valid": password_valid,
+                    "email_verified": bool(user and user["email_verified_at"]),
+                    "request_id": getattr(g, "request_id", ""),
+                },
+                confidence=100.0 if user else 50.0,
+            )
+            if not user or not password_valid:
                 record_security_event(
                     f"failed-login-{int(time.time() * 1000)}",
                     action="login_failed",
                     decision="rejected",
-                    payload={"email": request.form.get("email", ""), "login_kind": login_kind, "request_id": getattr(g, "request_id", "")},
+                    payload={"email": normalized_email, "login_kind": login_kind, "request_id": getattr(g, "request_id", "")},
                     reasons=["invalid credentials"],
                 )
                 flash("Invalid credentials.", "error")
-                return render_template("login.html", login_kind=login_kind, login_config=config_item)
+                return render_template("login.html", login_kind="unified", login_config=config_item)
+            if user_status != "active":
+                record_security_event(
+                    f"inactive-login-{int(time.time() * 1000)}",
+                    action="login_inactive_account",
+                    decision="rejected",
+                    payload={"email": normalized_email, "role": user["role"], "status": user_status, "request_id": getattr(g, "request_id", "")},
+                    reasons=["inactive account"],
+                )
+                flash("This DOCQ account is inactive. Contact your administrator.", "error")
+                return render_template("login.html", login_kind="unified", login_config=config_item)
             if user["role"] not in config_item["allowed_roles"]:
                 record_security_event(
                     f"role-mismatch-{int(time.time() * 1000)}",
                     action="login_role_mismatch",
                     decision="rejected",
-                    payload={"email": request.form.get("email", ""), "role": user["role"], "login_kind": login_kind},
+                    payload={"email": normalized_email, "role": user["role"], "login_kind": login_kind},
                     reasons=["account type mismatch"],
                 )
                 flash("Use the correct DOCQ login for this account type.", "error")
-                return render_template("login.html", login_kind=login_kind, login_config=config_item)
+                return render_template("login.html", login_kind="unified", login_config=config_item)
             login_user(user)
             record_security_event(
                 f"login-success-{user['id']}-{int(time.time() * 1000)}",
@@ -274,14 +309,8 @@ def create_app(test_config: dict | None = None) -> Flask:
             next_url = request.args.get("next")
             if is_safe_redirect_target(next_url):
                 return redirect(next_url)
-            if user["role"] == "doctor":
-                fallback = url_for("doctor_inbox")
-            elif user["role"] == "patient":
-                fallback = url_for("intake")
-            else:
-                fallback = url_for("dashboard")
-            return redirect(fallback)
-        return render_template("login.html", login_kind=login_kind, login_config=config_item)
+            return redirect(_workspace_for_role(str(user["role"])))
+        return render_template("login.html", login_kind="unified", login_config=config_item)
 
     @app.route("/")
     def access_portal():
@@ -329,19 +358,19 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     @app.route("/login", methods=["GET", "POST"])
     def login():
-        return _login_view("clinic")
+        return _login_view("unified")
 
     @app.route("/clinic-login", methods=["GET", "POST"])
     def clinic_login():
-        return _login_view("clinic")
+        return _login_view("unified")
 
     @app.route("/doctor-login", methods=["GET", "POST"])
     def doctor_login():
-        return _login_view("doctor")
+        return _login_view("unified")
 
     @app.route("/patient-login", methods=["GET", "POST"])
     def patient_login():
-        return _login_view("patient")
+        return _login_view("unified")
 
     @app.route("/patient-signup", methods=["GET"])
     def patient_signup():
@@ -367,7 +396,7 @@ def create_app(test_config: dict | None = None) -> Flask:
             return render_template("patient_signup.html")
         if get_user_by_email(email):
             flash("An account already exists for that email. Please log in instead.", "error")
-            return redirect(url_for("patient_login"))
+            return redirect(url_for("login"))
         user_id = create_user(name=name, email=email, password=password, role="patient", phone=phone, email_verified=False)
         issue_auth_token(user_id=user_id, token_type="email_verification", expires_minutes=60 * 24)
         upsert_patient_profile(
@@ -445,7 +474,7 @@ def create_app(test_config: dict | None = None) -> Flask:
                 confidence=100.0,
             )
             flash("Password updated. Please log in with your new credentials.", "success")
-            return redirect(url_for("patient_login"))
+            return redirect(url_for("login"))
         return render_template("patient_reset_password.html", token=token)
 
     @app.route("/logout")
@@ -565,7 +594,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         token_row = consume_auth_token(token, "email_verification")
         if token_row is None:
             flash("Verification link is invalid or expired.", "error")
-            return redirect(url_for("patient_login"))
+            return redirect(url_for("login"))
         mark_user_email_verified(int(token_row["user_id"]))
         record_security_event(
             f"verify-email-{token_row['user_id']}",
@@ -616,9 +645,11 @@ def create_app(test_config: dict | None = None) -> Flask:
     @app.route("/intake")
     def intake():
         workspace_context = None
+        patient_portal_context = None
         if g.user and g.user.get("role") == "patient":
             workspace_context = build_patient_workspace_context(g.user.get("email", ""))
-        return render_template("index.html", workspace_context=workspace_context)
+            patient_portal_context = _build_patient_portal_context("dashboard")
+        return render_template("index.html", workspace_context=workspace_context, patient_portal_context=patient_portal_context)
 
     @app.route("/api/patient/profile", methods=["GET", "POST"])
     @login_required
@@ -654,6 +685,255 @@ def create_app(test_config: dict | None = None) -> Flask:
             confidence=100.0,
         )
         return jsonify({"status": "ok", "workspace_context": _serialize_workspace_context(build_patient_workspace_context(g.user.get("email", "")))})
+
+    patient_portal_sections = [
+        {"key": "dashboard", "label": "Dashboard", "endpoint": "patient_dashboard"},
+        {"key": "appointments", "label": "Appointments", "endpoint": "patient_portal_section"},
+        {"key": "doctors", "label": "Doctors", "endpoint": "patient_portal_section"},
+        {"key": "reports", "label": "Reports", "endpoint": "patient_portal_section"},
+        {"key": "prescriptions", "label": "Prescriptions", "endpoint": "patient_portal_section"},
+        {"key": "care-plans", "label": "Care Plans", "endpoint": "patient_portal_section"},
+        {"key": "monitoring", "label": "Monitoring", "endpoint": "patient_portal_section"},
+        {"key": "timeline", "label": "Medical Timeline", "endpoint": "patient_portal_section"},
+        {"key": "profile", "label": "Profile", "endpoint": "patient_portal_section"},
+        {"key": "emergency-help", "label": "Emergency Help", "endpoint": "patient_portal_section"},
+        {"key": "settings", "label": "Settings", "endpoint": "patient_portal_section"},
+    ]
+    patient_portal_section_keys = {item["key"] for item in patient_portal_sections}
+
+    def _patient_portal_url(section: dict[str, str]) -> str:
+        if section["key"] == "dashboard":
+            return url_for("patient_dashboard")
+        return url_for("patient_portal_section", section=section["key"])
+
+    def _friendly_patient_priority(urgency: str) -> str:
+        normalized = str(urgency or "").lower()
+        if normalized == "emergency":
+            return "Immediate Care Recommended"
+        if normalized in {"high", "urgent"}:
+            return "Requires Medical Review"
+        if normalized in {"medium", "moderate"}:
+            return "Appointment Recommended"
+        return "Routine Care"
+
+    def _friendly_patient_status(appointment: dict[str, object] | None) -> str:
+        if not appointment:
+            return "Ready to Start Care"
+        follow_up = str(appointment.get("follow_up_status") or "")
+        status = str(appointment.get("status") or "").replace("-", " ").title()
+        queue_state = str(appointment.get("queue_state") or "")
+        if follow_up and follow_up != "none":
+            return "Follow-Up Scheduled" if follow_up == "scheduled" else "Follow-Up Requested"
+        if str(appointment.get("appointment_date") or "") >= dt.date.today().isoformat():
+            return "Appointment Scheduled"
+        if queue_state == "awaiting-doctor":
+            return "Awaiting Doctor Review"
+        return status or "Care History Available"
+
+    def _safe_json(value: object, default: object) -> object:
+        if not value:
+            return default
+        try:
+            return json.loads(str(value))
+        except (TypeError, ValueError):
+            return default
+
+    def _build_patient_portal_context(active_section: str = "dashboard") -> dict[str, object]:
+        workspace_context = build_patient_workspace_context(g.user.get("email", ""))
+        profile = workspace_context.get("profile")
+        patient_email = str(g.user.get("email", ""))
+        phone = str(profile["phone"] or "") if profile else ""
+        appointment_rows = fetch_patient_appointments(phone=phone, patient_email=patient_email, limit=80)
+        today = dt.date.today().isoformat()
+        records: list[dict[str, object]] = []
+        prescriptions: list[dict[str, object]] = []
+        reports: list[dict[str, object]] = []
+        care_plans: list[dict[str, object]] = []
+        monitoring: list[dict[str, object]] = []
+        timeline: list[dict[str, object]] = []
+
+        if profile:
+            timeline.append(
+                {
+                    "date": str(profile["created_at"] or "")[:10],
+                    "title": "Account Created",
+                    "details": "Your DOCQ patient profile was created.",
+                    "status": "Complete",
+                }
+            )
+
+        for row in appointment_rows:
+            appointment = dict(row)
+            appointment_id = int(appointment["id"])
+            appointment["priority_label"] = _friendly_patient_priority(str(appointment.get("urgency") or ""))
+            appointment["care_status"] = _friendly_patient_status(appointment)
+            latest_prescription = fetch_latest_prescription(appointment_id)
+            appointment_reports = [dict(item) for item in fetch_report_analyses(appointment_id, limit=10)]
+            appointment_care_plans = [dict(item) for item in fetch_care_plans(appointment_id, limit=5)]
+            appointment_monitoring = [dict(item) for item in fetch_monitoring_checkins(appointment_id, limit=10)]
+            if latest_prescription:
+                prescription_item = dict(latest_prescription)
+                prescription_item["department"] = appointment.get("specialty", "")
+                prescription_item["appointment_date"] = appointment.get("appointment_date", "")
+                prescriptions.append(prescription_item)
+                timeline.append(
+                    {
+                        "date": str(prescription_item.get("created_at") or "")[:10],
+                        "title": "Prescription Issued",
+                        "details": f"{prescription_item.get('doctor_name')} added medication instructions.",
+                        "status": str(prescription_item.get("status") or "issued").title(),
+                    }
+                )
+            for report in appointment_reports:
+                report["appointment_date"] = appointment.get("appointment_date", "")
+                report["doctor_name"] = appointment.get("doctor_name", "")
+                reports.append(report)
+                timeline.append(
+                    {
+                        "date": str(report.get("created_at") or "")[:10],
+                        "title": "Report Uploaded",
+                        "details": f"{report.get('report_type')} report attached to your record.",
+                        "status": str(report.get("ocr_status") or "Submitted").replace("_", " ").title(),
+                    }
+                )
+            for plan in appointment_care_plans:
+                plan["plan"] = _safe_json(plan.get("plan_json"), {})
+                plan["appointment_date"] = appointment.get("appointment_date", "")
+                care_plans.append(plan)
+            for checkin in appointment_monitoring:
+                checkin["appointment_date"] = appointment.get("appointment_date", "")
+                monitoring.append(checkin)
+            timeline.append(
+                {
+                    "date": str(appointment.get("appointment_date") or ""),
+                    "title": "Appointment Scheduled" if str(appointment.get("appointment_date") or "") >= today else "Consultation Recorded",
+                    "details": f"{appointment.get('specialty')} with {appointment.get('doctor_name')}",
+                    "status": appointment["care_status"],
+                }
+            )
+            records.append(
+                {
+                    "appointment": appointment,
+                    "prescription": dict(latest_prescription) if latest_prescription else None,
+                    "reports": appointment_reports,
+                    "care_plans": appointment_care_plans,
+                    "monitoring": appointment_monitoring,
+                    "notifications": [dict(item) for item in fetch_notifications_for_appointment(appointment_id, limit=5)],
+                }
+            )
+
+        appointments = [record["appointment"] for record in records]
+        upcoming = [item for item in appointments if item["status"] not in {"cancelled"} and str(item["appointment_date"]) >= today]
+        past = [item for item in appointments if str(item["appointment_date"]) < today and item["status"] not in {"cancelled"}]
+        cancelled = [item for item in appointments if item["status"] == "cancelled"]
+        rescheduled = [item for item in appointments if item["status"] == "rescheduled"]
+        emergency = [item for item in appointments if str(item.get("urgency")) == "Emergency"]
+        primary_appointment = upcoming[0] if upcoming else (appointments[0] if appointments else None)
+        department = str(primary_appointment.get("specialty") if primary_appointment else "Not assigned yet")
+        assigned_doctor = str(primary_appointment.get("doctor_name") if primary_appointment else "Choose a doctor")
+        doctor_user = next((dict(row) for row in fetch_doctor_users(include_inactive=False) if str(row["doctor_name"] or row["name"]) == assigned_doctor), None)
+        doctor_options = recommend_doctor_matches(department, phone=phone, patient_email=patient_email) if department != "Not assigned yet" else []
+        for index, option in enumerate(doctor_options):
+            option["relationship_label"] = "My Doctor" if option["doctor_name"] == assigned_doctor else ("Previously Visited" if option.get("previous_visits") else "Available Doctor")
+            option["workload_label"] = "High availability" if int(option.get("open_slot_count") or 0) >= 6 else "Limited slots"
+            option["patient_rating"] = "Coming soon"
+            option["specialization"] = str(doctor_user.get("specialization") or option.get("department") or department) if doctor_user and option["doctor_name"] == assigned_doctor else str(option.get("department") or department)
+        if primary_appointment:
+            timeline.append(
+                {
+                    "date": str(primary_appointment.get("appointment_date") or ""),
+                    "title": "Next Appointment",
+                    "details": f"{primary_appointment.get('doctor_name')} · {primary_appointment.get('slot_time') or 'Time pending'}",
+                    "status": "Upcoming",
+                }
+            )
+        timeline = sorted(
+            [item for item in timeline if item.get("date")],
+            key=lambda item: str(item.get("date") or ""),
+            reverse=True,
+        )
+        quick_summary = {
+            "upcoming_appointment": upcoming[0] if upcoming else None,
+            "last_consultation": past[0] if past else None,
+            "active_prescription": next((item for item in prescriptions if str(item.get("status") or "").lower() in {"issued", "active"}), None),
+            "uploaded_reports": len(reports),
+            "pending_follow_up": next((item for item in appointments if str(item.get("follow_up_status") or "") not in {"", "none"}), None),
+        }
+        emergency_help = [
+            "Chest pain",
+            "Difficulty breathing",
+            "Stroke symptoms",
+            "Severe injury",
+            "Heavy bleeding",
+            "Broken bone",
+            "Accident",
+        ]
+        quick_symptoms = [
+            "Chest Pain",
+            "Headache",
+            "Fever",
+            "Breathing Difficulty",
+            "Skin Problem",
+            "Joint Pain",
+            "Stomach Pain",
+            "Mental Health Concern",
+        ]
+        assessment_history = [
+            {
+                "date": str(item.get("created_at") or item.get("appointment_date") or "")[:10],
+                "symptoms": str(item.get("symptoms") or "Health assessment"),
+                "department": str(item.get("specialty") or "General Medicine"),
+                "outcome": item.get("priority_label", "Medical guidance provided"),
+                "doctor": str(item.get("doctor_name") or "Not assigned"),
+                "appointment_status": str(item.get("care_status") or item.get("status") or "Recorded"),
+            }
+            for item in appointments[:8]
+        ]
+        last_assessment = assessment_history[0] if assessment_history else None
+        return {
+            "active_section": active_section,
+            "sections": [{**item, "href": _patient_portal_url(item)} for item in patient_portal_sections],
+            "workspace_context": workspace_context,
+            "profile": profile,
+            "patient_id": f"PAT-{int(profile['id']):05d}" if profile else f"USR-{int(g.user['id']):05d}",
+            "department": department,
+            "assigned_doctor": assigned_doctor,
+            "doctor_profile": doctor_user,
+            "current_status": _friendly_patient_status(primary_appointment),
+            "records": records,
+            "appointments": {
+                "upcoming": upcoming,
+                "past": past,
+                "cancelled": cancelled,
+                "rescheduled": rescheduled,
+                "emergency": emergency,
+                "all": appointments,
+            },
+            "quick_summary": quick_summary,
+            "prescriptions": prescriptions,
+            "reports": reports,
+            "care_plans": care_plans,
+            "monitoring": monitoring,
+            "timeline": timeline,
+            "doctor_options": doctor_options,
+            "emergency_help": emergency_help,
+            "quick_symptoms": quick_symptoms,
+            "assessment_history": assessment_history,
+            "last_assessment": last_assessment,
+            "notifications": workspace_context.get("notifications", []),
+        }
+
+    @app.route("/patient/dashboard", methods=["GET"])
+    @login_required
+    @role_required("patient")
+    def patient_dashboard():
+        return redirect(url_for("intake"))
+
+    @app.route("/patient/<section>", methods=["GET"])
+    @login_required
+    @role_required("patient")
+    def patient_portal_section(section: str):
+        return redirect(url_for("intake"))
 
     @app.route("/api/intake", methods=["POST"])
     def intake_api():
@@ -1406,7 +1686,7 @@ def create_app(test_config: dict | None = None) -> Flask:
     def dashboard():
         if g.user["role"] == "patient":
             return redirect(url_for("intake"))
-        if g.user["role"] == "doctor":
+        if g.user["role"] in {"doctor", "clinician"}:
             return redirect(url_for("doctor_inbox"))
         metrics = build_dashboard_metrics(
             app.config,
@@ -1416,7 +1696,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         return render_template("schedule.html", metrics=metrics, appointments=metrics["recent_appointments"], error=None, success=None, specialities=sorted(SPECIALTY_LABELS.keys()))
 
     @app.route("/admin")
-    @role_required("admin")
+    @role_required(*admin_ops_roles)
     def admin_dashboard():
         metrics = build_dashboard_metrics(
             app.config,
@@ -1424,6 +1704,82 @@ def create_app(test_config: dict | None = None) -> Flask:
             compare_workflow_id=str(request.args.get("compare_workflow_id", "")).strip(),
         )
         return render_template("schedule.html", metrics=metrics, appointments=metrics["recent_appointments"], error=None, success=None, specialities=sorted(SPECIALTY_LABELS.keys()), admin_mode=True)
+
+    @app.route("/admin/doctors", methods=["GET"])
+    @role_required(*admin_ops_roles)
+    def admin_doctors_api():
+        include_inactive = str(request.args.get("include_inactive", "")).lower() in {"1", "true", "yes"}
+        return jsonify(
+            {
+                "items": [dict(row) for row in fetch_doctor_users(include_inactive=include_inactive)],
+                "request_id": getattr(g, "request_id", ""),
+            }
+        )
+
+    @app.route("/admin/doctors", methods=["POST"])
+    @role_required(*admin_ops_roles)
+    def admin_create_doctor_api():
+        payload = request.get_json(silent=True) or request.form
+        name = str(payload.get("name", "")).strip()
+        email = str(payload.get("email", "")).strip().lower()
+        password = str(payload.get("password", "")).strip()
+        specialty = normalize_specialty(str(payload.get("department") or payload.get("specialty") or "General"))
+        doctor_name = str(payload.get("doctor_name") or name).strip()
+        branch = str(payload.get("branch") or app.config.get("DEFAULT_BRANCH", "Mysore Central")).strip()
+        specialization = str(payload.get("specialization", "")).strip()
+        availability = str(payload.get("availability") or "Available").strip()
+        status = str(payload.get("status") or "active").strip()
+        phone = str(payload.get("phone", "")).strip() or None
+        role = str(payload.get("role") or "doctor").strip()
+        if role not in {"doctor", "clinician"}:
+            return jsonify({"error": "doctor role must be doctor or clinician."}), 400
+        if not name or not email or len(password) < 8:
+            return jsonify({"error": "name, email, and password of at least 8 characters are required."}), 400
+        if get_user_by_email(email):
+            return jsonify({"error": "doctor account already exists."}), 409
+        user_id = create_user(
+            name=name,
+            email=email,
+            password=password,
+            role=role,
+            branch=branch,
+            tenant_key=str(g.user.get("tenant_key") or app.config.get("DEFAULT_TENANT_KEY", "default-clinic")),
+            org_unit=specialty,
+            phone=phone,
+            doctor_name=doctor_name,
+            specialty=specialty,
+            specialization=specialization,
+            status=status,
+            availability=availability,
+            email_verified=True,
+        )
+        seed_slots_for_doctor(doctor_name, specialty, branch)
+        log_action(g.user["name"], g.user["role"], "create-doctor", "doctor", user_id, f"{doctor_name} assigned to {specialty}")
+        return jsonify({"message": "Doctor created.", "doctor_id": user_id, "request_id": getattr(g, "request_id", "")}), 201
+
+    @app.route("/admin/doctors/<int:user_id>", methods=["PATCH"])
+    @role_required(*admin_ops_roles)
+    def admin_update_doctor_api(user_id: int):
+        payload = request.get_json(silent=True) or request.form
+        department = payload.get("department") or payload.get("specialty")
+        update_doctor_user(
+            user_id,
+            name=str(payload.get("name")).strip() if payload.get("name") is not None else None,
+            department=str(department).strip() if department is not None else None,
+            branch=str(payload.get("branch")).strip() if payload.get("branch") is not None else None,
+            specialization=str(payload.get("specialization")).strip() if payload.get("specialization") is not None else None,
+            status=str(payload.get("status")).strip() if payload.get("status") is not None else None,
+            availability=str(payload.get("availability")).strip() if payload.get("availability") is not None else None,
+        )
+        log_action(g.user["name"], g.user["role"], "update-doctor", "doctor", user_id, "doctor management profile updated")
+        return jsonify({"message": "Doctor updated.", "request_id": getattr(g, "request_id", "")})
+
+    @app.route("/admin/doctors/<int:user_id>", methods=["DELETE"])
+    @role_required(*admin_ops_roles)
+    def admin_deactivate_doctor_api(user_id: int):
+        update_doctor_user(user_id, status="inactive", availability="Offline")
+        log_action(g.user["name"], g.user["role"], "deactivate-doctor", "doctor", user_id, "doctor account deactivated")
+        return jsonify({"message": "Doctor deactivated.", "request_id": getattr(g, "request_id", "")})
 
     @app.route("/admin/appointments/<int:appointment_id>/reschedule", methods=["POST"])
     @role_required(*admin_ops_roles)
@@ -1569,12 +1925,169 @@ def create_app(test_config: dict | None = None) -> Flask:
         payload["request_id"] = getattr(g, "request_id", "")
         return jsonify(payload)
 
+    def _doctor_priority_label(urgency: str) -> str:
+        normalized = str(urgency or "").lower()
+        if normalized == "emergency":
+            return "Emergency"
+        if normalized in {"high", "urgent"}:
+            return "High Priority"
+        if normalized in {"moderate", "medium"}:
+            return "Medical Review"
+        return "Routine"
+
+    def _doctor_patient_status(appointment: dict[str, object]) -> str:
+        follow_up = str(appointment.get("follow_up_status") or "")
+        if follow_up and follow_up != "none":
+            return "Follow-Up Needed" if follow_up == "requested" else "Follow-Up Scheduled"
+        status = str(appointment.get("status") or "").replace("-", " ").title()
+        queue_state = str(appointment.get("queue_state") or "")
+        if queue_state in {"awaiting-doctor", "assistant-review", "priority-review", "manual-review"}:
+            return "Awaiting Clinical Review"
+        return status or "Active"
+
+    def _build_doctor_command_context(metrics: dict[str, object]) -> dict[str, object]:
+        today = dt.date.today().isoformat()
+        cases = list(metrics.get("pending_appointments", [])) + list(metrics.get("recent_cases", []))
+        deduped_cases: list[dict[str, object]] = []
+        seen_ids: set[int] = set()
+        for item in cases:
+            appointment = dict(item["appointment"])
+            appointment_id = int(appointment["id"])
+            if appointment_id in seen_ids:
+                continue
+            seen_ids.add(appointment_id)
+            appointment["priority_label"] = _doctor_priority_label(str(appointment.get("urgency") or ""))
+            appointment["current_status"] = _doctor_patient_status(appointment)
+            deduped_cases.append({**item, "appointment": appointment})
+
+        reports: list[dict[str, object]] = []
+        care_plans: list[dict[str, object]] = []
+        monitoring_alerts: list[dict[str, object]] = []
+        prescriptions: list[dict[str, object]] = []
+        follow_up_cases: list[dict[str, object]] = []
+        emergency_cases: list[dict[str, object]] = []
+        patient_cards: list[dict[str, object]] = []
+        timeline: list[dict[str, object]] = []
+        patient_seen: set[str] = set()
+
+        for item in deduped_cases:
+            appointment = dict(item["appointment"])
+            patient_key = str(appointment.get("patient_email") or appointment.get("phone") or appointment.get("patient_name"))
+            if patient_key not in patient_seen:
+                patient_seen.add(patient_key)
+                history = list(item.get("history", []))
+                patient_cards.append(
+                    {
+                        "appointment": appointment,
+                        "last_visit": history[0]["appointment_date"] if history else appointment.get("created_at", "")[:10],
+                        "next_appointment": appointment.get("appointment_date") if str(appointment.get("appointment_date") or "") >= today else "",
+                        "history_count": len(history),
+                    }
+                )
+            if str(appointment.get("urgency")) == "Emergency":
+                emergency_cases.append(item)
+            if str(appointment.get("follow_up_status") or "") not in {"", "none"}:
+                follow_up_cases.append(item)
+            for report in item.get("report_analyses", []):
+                report_item = dict(report)
+                report_item["patient_name"] = appointment.get("patient_name", "")
+                report_item["appointment_id"] = appointment.get("id")
+                report_item["doctor_name"] = appointment.get("doctor_name", "")
+                reports.append(report_item)
+            for plan in item.get("care_plans", []):
+                plan_item = dict(plan)
+                plan_item["patient_name"] = appointment.get("patient_name", "")
+                try:
+                    plan_item["plan"] = json.loads(str(plan_item.get("plan_json") or "{}"))
+                except (TypeError, ValueError):
+                    plan_item["plan"] = {}
+                care_plans.append(plan_item)
+            for checkin in item.get("monitoring_checkins", []):
+                checkin_item = dict(checkin)
+                checkin_item["patient_name"] = appointment.get("patient_name", "")
+                monitoring_alerts.append(checkin_item)
+            if item.get("latest_vitals") and str(item["latest_vitals"]["risk_level"] or "").lower() not in {"", "normal"}:
+                monitoring_alerts.append(
+                    {
+                        "patient_name": appointment.get("patient_name", ""),
+                        "prompt": "Abnormal vitals",
+                        "response_text": str(item["latest_vitals"]["risk_level"]),
+                        "status": "needs-review",
+                        "updated_at": item["latest_vitals"]["recorded_at"],
+                    }
+                )
+            if item.get("prescription"):
+                prescription = dict(item["prescription"])
+                prescription["department"] = appointment.get("specialty", "")
+                prescriptions.append(prescription)
+            timeline.append(
+                {
+                    "date": str(appointment.get("appointment_date") or ""),
+                    "patient_name": appointment.get("patient_name", ""),
+                    "title": appointment["current_status"],
+                    "details": f"{appointment.get('specialty')} · {appointment.get('slot_time') or 'Time pending'}",
+                }
+            )
+
+        unread_reports = [item for item in reports if str(item.get("review_status") or "pending") != "reviewed"]
+        appointments = [dict(item) for item in metrics.get("appointments", [])]
+        todays_appointments = [item for item in appointments if str(item["appointment_date"]) == today]
+        completed = [item for item in appointments if str(item.get("status") or "") in {"doctor-acknowledged", "completed", "follow-up"}]
+        performance = {
+            "patients_seen": len({str(item.get("patient_email") or item.get("phone") or item.get("patient_name")) for item in appointments}),
+            "appointments_completed": len(completed),
+            "average_response_time": "Same day" if completed else "Pending",
+            "emergency_cases_managed": len(emergency_cases),
+            "follow_up_compliance": f"{len(follow_up_cases)} active",
+        }
+        overview = {
+            "todays_appointments": len(todays_appointments),
+            "emergency_cases": len(emergency_cases),
+            "pending_reviews": int(metrics.get("pending_count") or 0),
+            "unread_reports": len(unread_reports),
+            "follow_up_patients": len(follow_up_cases),
+            "monitoring_alerts": len(monitoring_alerts),
+            "department_queue": int(metrics.get("pending_count") or 0),
+        }
+        doctor_profile = next(
+            (
+                dict(row)
+                for row in fetch_doctor_users(include_inactive=True)
+                if str(row["doctor_name"] or row["name"]) == str(metrics.get("doctor_name") or "")
+            ),
+            None,
+        )
+        return {
+            "metrics": metrics,
+            "overview": overview,
+            "doctor_profile": doctor_profile,
+            "department": str(g.user.get("specialty") or (doctor_profile or {}).get("specialty") or "General Medicine"),
+            "patient_cards": patient_cards,
+            "clinical_records": deduped_cases,
+            "reports": reports,
+            "unread_reports": unread_reports,
+            "prescriptions": prescriptions,
+            "care_plans": care_plans,
+            "follow_up_cases": follow_up_cases,
+            "monitoring_alerts": monitoring_alerts,
+            "emergency_cases": emergency_cases,
+            "performance": performance,
+            "timeline": sorted(timeline, key=lambda item: str(item.get("date") or ""), reverse=True),
+            "availability_options": ["Available", "Busy", "On Leave", "Emergency Duty", "Offline"],
+        }
+
     @app.route("/doctor/inbox", methods=["GET", "POST"])
-    @role_required("doctor")
+    @app.route("/doctor/dashboard", methods=["GET", "POST"])
+    @role_required("doctor", "clinician")
     def doctor_inbox():
         if request.method == "POST":
-            appointment_id = int(request.form.get("appointment_id", "0"))
             action = request.form.get("action", "")
+            if action == "update-availability":
+                update_doctor_user(int(g.user["id"]), availability=str(request.form.get("availability", "Available")).strip())
+                log_action(g.user["name"], g.user["role"], "update-availability", "doctor", int(g.user["id"]), str(request.form.get("availability", "Available")).strip())
+                flash("Availability updated.", "success")
+                return redirect(url_for("doctor_inbox"))
+            appointment_id = int(request.form.get("appointment_id", "0"))
             if action == "acknowledge":
                 update_appointment_status(appointment_id, queue_state="scheduled", status="doctor-acknowledged", acknowledged_by=g.user["name"])
                 log_action(g.user["name"], g.user["role"], "acknowledge-appointment", "appointment", appointment_id, g.user["doctor_name"] or "")
@@ -1616,6 +2129,28 @@ def create_app(test_config: dict | None = None) -> Flask:
                 update_doctor_notes(appointment_id, doctor_diary or request.form.get("doctor_notes", ""), g.user["name"])
                 log_action(g.user["name"], g.user["role"], "save-clinical-record", "appointment", appointment_id, "doctor diary and prescription updated")
                 flash("Clinical diary saved and prescription archived.", "success")
+            elif action == "save-care-plan":
+                save_care_plan(
+                    appointment_id,
+                    doctor_name=str(g.user.get("doctor_name") or g.user["name"]),
+                    medication_plan=str(request.form.get("medication_plan", "")),
+                    lifestyle_guidance=str(request.form.get("lifestyle_guidance", "")),
+                    diet_recommendations=str(request.form.get("diet_recommendations", "")),
+                    monitoring_tasks=str(request.form.get("monitoring_tasks", "")),
+                    warning_signs=str(request.form.get("warning_signs", "")),
+                    follow_up_schedule=str(request.form.get("follow_up_schedule", "")),
+                )
+                update_appointment_status(appointment_id, follow_up_status="scheduled", status="care-plan-issued", acknowledged_by=g.user["name"])
+                log_action(g.user["name"], g.user["role"], "save-care-plan", "appointment", appointment_id, "doctor care plan created")
+                flash("Care plan created.", "success")
+            elif action == "review-report":
+                update_report_review(
+                    int(request.form.get("report_id", "0")),
+                    review_status=str(request.form.get("review_status") or "reviewed"),
+                    review_notes=str(request.form.get("review_notes") or ""),
+                )
+                log_action(g.user["name"], g.user["role"], "review-report", "appointment", appointment_id, "report review updated")
+                flash("Report review updated.", "success")
             elif action == "upload-report":
                 try:
                     result = _process_report_upload(appointment_id)
@@ -1624,7 +2159,7 @@ def create_app(test_config: dict | None = None) -> Flask:
                     flash(str(exc), "error")
             return redirect(url_for("doctor_inbox"))
         metrics = build_doctor_metrics(g.user["doctor_name"])
-        return render_template("doctor_inbox.html", metrics=metrics)
+        return render_template("doctor_inbox.html", **_build_doctor_command_context(metrics))
 
     @app.cli.command("send-reminders")
     def send_reminders_command() -> None:

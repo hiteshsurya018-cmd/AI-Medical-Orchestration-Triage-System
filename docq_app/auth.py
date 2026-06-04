@@ -140,13 +140,17 @@ def get_user_by_id(user_id: int):
         return connection.execute("SELECT * FROM users WHERE id = ?", (int(user_id),)).fetchone()
 
 
+def _login_endpoint_for_request() -> str:
+    return "login"
+
+
 def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
         if "user_id" not in session:
             if request.path.startswith("/api/"):
                 return jsonify({"error": "authentication required"}), 401
-            return redirect(url_for("login", next=request.path))
+            return redirect(url_for(_login_endpoint_for_request(), next=request.path))
         return view(*args, **kwargs)
 
     return wrapped
@@ -159,7 +163,7 @@ def role_required(*roles):
             if "user_id" not in session:
                 if request.path.startswith("/api/"):
                     return jsonify({"error": "authentication required"}), 401
-                return redirect(url_for("login", next=request.path))
+                return redirect(url_for(_login_endpoint_for_request(), next=request.path))
             if session.get("role") not in roles:
                 if request.path.startswith("/api/"):
                     return jsonify({"error": "forbidden"}), 403
@@ -259,14 +263,23 @@ def create_user(
     tenant_key: str = "default-clinic",
     org_unit: str | None = None,
     phone: str | None = None,
+    doctor_name: str | None = None,
+    specialty: str | None = None,
+    specialization: str | None = None,
+    status: str = "active",
+    availability: str = "Available",
     email_verified: bool = False,
 ) -> int:
     created_at = dt.datetime.now().isoformat(timespec="seconds")
     with get_connection() as connection:
         cursor = connection.execute(
             """
-            INSERT INTO users (name, email, email_encrypted, password_hash, role, tenant_key, org_unit, branch, doctor_name, specialty, phone, phone_encrypted, email_verified_at, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO users (
+                name, email, email_encrypted, password_hash, role, tenant_key, org_unit, branch,
+                doctor_name, specialty, specialization, status, availability, phone, phone_encrypted,
+                email_verified_at, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 name.strip(),
@@ -275,10 +288,13 @@ def create_user(
                 hash_password(password),
                 role,
                 tenant_key,
-                org_unit,
+                org_unit or specialty,
                 branch,
-                None,
-                None,
+                doctor_name.strip() if doctor_name else None,
+                specialty.strip() if specialty else None,
+                specialization.strip() if specialization else None,
+                status.strip() or "active",
+                availability.strip() or "Available",
                 phone.strip() if phone else None,
                 encrypt_sensitive_value(phone.strip()) if phone and phone.strip() else None,
                 created_at if email_verified else None,
