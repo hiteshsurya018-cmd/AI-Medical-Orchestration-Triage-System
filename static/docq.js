@@ -13,6 +13,15 @@ const bookingModal = document.getElementById("booking-modal");
 const closeBookingModalButton = document.getElementById("close-booking-modal");
 const bookingForm = document.getElementById("booking-form");
 const bookingDate = document.getElementById("booking-date");
+const bookingTime = document.getElementById("booking-time");
+const bookingPreferredDate = document.getElementById("booking-preferred-date");
+const bookingCalendarGrid = document.getElementById("booking-calendar-grid");
+const bookingCalendarTitle = document.getElementById("booking-calendar-title");
+const bookingCalendarPrev = document.getElementById("booking-calendar-prev");
+const bookingCalendarNext = document.getElementById("booking-calendar-next");
+const bookingSlotGrid = document.getElementById("booking-slot-grid");
+const bookingSlotSummary = document.getElementById("booking-slot-summary");
+const bookingRecommendation = document.getElementById("booking-recommendation");
 const bookingAge = document.getElementById("booking-age");
 const bookingSpecialty = document.getElementById("booking-specialty");
 const bookingDoctorName = document.getElementById("booking-doctor-name");
@@ -52,6 +61,11 @@ const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
 
 let latestIntake = null;
 let drawerVisible = false;
+let bookingCalendar = null;
+let bookingVisibleMonth = null;
+let selectedBookingDate = "";
+let selectedBookingTime = "";
+let preferredBookingDate = "";
 
 const workflowStageOrder = ["memory", "intake", "followup", "triage", "decision", "scheduling", "completed"];
 const workflowStageMeta = {
@@ -113,6 +127,64 @@ function formatDisplayDate(value, mode = "datetime") {
         return value || "";
     }
     return mode === "date" ? dateOnlyFormatter.format(parsed) : dateTimeFormatter.format(parsed);
+}
+
+function localDateFromYmd(value) {
+    if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return null;
+    }
+    const [year, month, day] = value.split("-").map(Number);
+    return new Date(year, month - 1, day);
+}
+
+function ymdFromDate(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+}
+
+function addDays(date, days) {
+    const next = new Date(date);
+    next.setDate(next.getDate() + days);
+    return next;
+}
+
+function clientTodayYmd() {
+    return ymdFromDate(new Date());
+}
+
+function monthStart(value = "") {
+    const base = localDateFromYmd(value) || new Date();
+    return new Date(base.getFullYear(), base.getMonth(), 1);
+}
+
+function monthLabel(date) {
+    return new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric" }).format(date);
+}
+
+function firstCalendarCell(date) {
+    const first = new Date(date.getFullYear(), date.getMonth(), 1);
+    return addDays(first, -first.getDay());
+}
+
+function calendarDayByDate(dateValue) {
+    const days = bookingCalendar?.days || [];
+    return days.find((day) => day.date === dateValue) || null;
+}
+
+function availabilityCopy(day) {
+    if (!day) {
+        return { icon: "-", label: "Unavailable", title: "No schedule published" };
+    }
+    const map = {
+        available: { icon: "+", label: "Available", title: "High availability" },
+        moderate: { icon: "~", label: "Moderate", title: "Moderate availability" },
+        low: { icon: "!", label: "Limited", title: "Limited availability" },
+        booked: { icon: "x", label: "Booked", title: "Fully booked" },
+        unavailable: { icon: "-", label: "Unavailable", title: day.unavailable_reason || "Doctor unavailable" },
+    };
+    return map[day.availability] || map.unavailable;
 }
 
 function escapeHtml(value) {
@@ -630,7 +702,177 @@ function resetBookingFeedback() {
     bookingFeedback.className = "mt-3 hidden rounded-card px-3 py-3 text-sm";
 }
 
+function setBookingDates(dates, urgent = false) {
+    if (!bookingDate) {
+        return;
+    }
+    const first = dates.find((item) => Number(item.open_count || 0) > 0) || dates[0];
+    if (first && urgent) {
+        selectBookingDate(first.date, { autoSelectSlot: true });
+    } else if (!selectedBookingDate && first) {
+        selectBookingDate(first.date, { autoSelectSlot: false });
+    }
+}
+
+function setBookingCalendar(calendar, options = {}) {
+    bookingCalendar = calendar || null;
+    if (!bookingCalendar) {
+        renderBookingCalendar();
+        renderBookingSlots("");
+        return;
+    }
+    const firstAvailable = bookingCalendar.first_available || null;
+    const initialDate = options.preferredDate || selectedBookingDate || firstAvailable?.date || bookingCalendar.days?.[0]?.date || clientTodayYmd();
+    preferredBookingDate = options.preferredDate || preferredBookingDate || "";
+    bookingVisibleMonth = monthStart(initialDate);
+    if (firstAvailable && !selectedBookingDate) {
+        selectBookingDate(firstAvailable.date, { autoSelectSlot: true, render: false });
+    }
+    renderBookingCalendar();
+    renderBookingSlots(selectedBookingDate || firstAvailable?.date || "");
+    renderBookingRecommendation(latestIntake?.recommended_appointment || {
+        doctor_name: bookingCalendar.doctor?.doctor_name || currentDoctorSelection(),
+        slot: firstAvailable ? `${firstAvailable.date} ${firstAvailable.time}` : "",
+        reason: "Earliest available doctor slot based on live calendar capacity.",
+        availability_score: latestIntake?.doctor_matches?.find((item) => item.doctor_name === currentDoctorSelection())?.availability_score || 0,
+    });
+}
+
+function renderBookingRecommendation(recommendation = null) {
+    if (!bookingRecommendation) {
+        return;
+    }
+    if (!recommendation?.slot) {
+        bookingRecommendation.classList.add("hidden");
+        bookingRecommendation.innerHTML = "";
+        return;
+    }
+    bookingRecommendation.classList.remove("hidden");
+    bookingRecommendation.innerHTML = `
+        <div>
+            <p>Recommended Appointment</p>
+            <strong>${escapeHtml(recommendation.doctor_name || currentDoctorSelection())}</strong>
+            <span>${escapeHtml(recommendation.slot)}</span>
+        </div>
+        <small>${escapeHtml(recommendation.reason || "Best fit based on availability and queue load.")}</small>
+    `;
+}
+
+function selectBookingDate(dateValue, options = {}) {
+    selectedBookingDate = dateValue || "";
+    if (bookingDate) {
+        bookingDate.value = selectedBookingDate;
+    }
+    const day = calendarDayByDate(selectedBookingDate);
+    const firstSlot = day?.slots?.find((slot) => slot.available);
+    if (options.autoSelectSlot && firstSlot) {
+        selectedBookingTime = firstSlot.time;
+        if (bookingTime) {
+            bookingTime.value = selectedBookingTime;
+        }
+    } else if (!day?.slots?.some((slot) => slot.time === selectedBookingTime && slot.available)) {
+        selectedBookingTime = "";
+        if (bookingTime) {
+            bookingTime.value = "";
+        }
+    }
+    if (options.render !== false) {
+        renderBookingCalendar();
+        renderBookingSlots(selectedBookingDate);
+    }
+}
+
+function selectBookingTime(timeValue) {
+    selectedBookingTime = timeValue || "";
+    if (bookingTime) {
+        bookingTime.value = selectedBookingTime;
+    }
+    renderBookingSlots(selectedBookingDate);
+}
+
+function renderBookingCalendar() {
+    if (!bookingCalendarGrid || !bookingCalendarTitle) {
+        return;
+    }
+    const visibleMonth = bookingVisibleMonth || monthStart(selectedBookingDate || clientTodayYmd());
+    bookingCalendarTitle.textContent = monthLabel(visibleMonth);
+    bookingCalendarGrid.innerHTML = "";
+    const start = firstCalendarCell(visibleMonth);
+    const today = clientTodayYmd();
+    for (let index = 0; index < 42; index += 1) {
+        const cellDate = addDays(start, index);
+        const dateValue = ymdFromDate(cellDate);
+        const day = calendarDayByDate(dateValue);
+        const state = availabilityCopy(day);
+        const isOutsideMonth = cellDate.getMonth() !== visibleMonth.getMonth();
+        const isPast = dateValue < today || day?.is_past;
+        const selectable = Boolean(day && Number(day.available_slots || 0) > 0 && !isPast);
+        const button = document.createElement("button");
+        button.type = "button";
+        button.disabled = !selectable;
+        button.className = [
+            "booking-calendar-day",
+            `availability-${day?.availability || "unavailable"}`,
+            isOutsideMonth ? "outside-month" : "",
+            dateValue === today ? "today" : "",
+            dateValue === selectedBookingDate ? "selected" : "",
+            day?.preferred || preferredBookingDate === dateValue ? "preferred" : "",
+            day?.recommended ? "recommended" : "",
+        ].filter(Boolean).join(" ");
+        button.title = `${dateValue}\n${state.title}\nAvailable Slots: ${day?.available_slots || 0}\nDoctors Available: ${day?.doctors_available || 0}\nEarliest Slot: ${day?.earliest_slot || "None"}\nQueue Load: ${day?.queue_load || "Unavailable"}`;
+        button.innerHTML = `
+            <span class="booking-day-number">${cellDate.getDate()}</span>
+            <span class="booking-day-state">${state.icon} ${state.label}</span>
+            <span class="booking-day-meta">${day?.available_slots || 0} slots</span>
+        `;
+        if (selectable) {
+            button.addEventListener("click", () => selectBookingDate(dateValue, { autoSelectSlot: true }));
+        }
+        bookingCalendarGrid.appendChild(button);
+    }
+}
+
+function renderBookingSlots(dateValue) {
+    if (!bookingSlotGrid || !bookingSlotSummary) {
+        return;
+    }
+    bookingSlotGrid.innerHTML = "";
+    const day = calendarDayByDate(dateValue);
+    if (!day) {
+        bookingSlotSummary.textContent = "No schedule available";
+        bookingSlotGrid.innerHTML = '<p class="booking-empty-state">Choose an available calendar date.</p>';
+        return;
+    }
+    const slots = Array.isArray(day.slots) ? day.slots : [];
+    bookingSlotSummary.textContent = `${day.available_slots || 0} available - ${day.booked_slots || 0} booked - ${day.queue_load || "Queue"} load`;
+    if (!slots.length) {
+        bookingSlotGrid.innerHTML = '<p class="booking-empty-state">No slots published for this date.</p>';
+        return;
+    }
+    slots.forEach((slot) => {
+        const available = Boolean(slot.available);
+        const selected = selectedBookingTime === slot.time;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.disabled = !available;
+        button.className = `booking-slot-card ${available ? "available" : "unavailable"} ${selected ? "selected" : ""}`;
+        button.title = `${slot.time}\n${slot.doctor_name || currentDoctorSelection()}\n${slot.department || bookingSpecialty?.value || ""}\nRoom: ${slot.room || "Care suite"}\nStatus: ${slot.label || slot.status}`;
+        button.innerHTML = `
+            <strong>${escapeHtml(slot.time)}</strong>
+            <span>${available ? (selected ? "Recommended" : "Available") : escapeHtml(slot.label || "Unavailable")}</span>
+            <small>${escapeHtml(slot.room || "Care suite")}</small>
+        `;
+        if (available) {
+            button.addEventListener("click", () => selectBookingTime(slot.time));
+        }
+        bookingSlotGrid.appendChild(button);
+    });
+}
+
 function showBookingModal() {
+    if (bookingPreferredDate) {
+        bookingPreferredDate.min = clientTodayYmd();
+    }
     bookingModal?.classList.remove("hidden");
     bookingModal?.classList.add("flex");
 }
@@ -713,6 +955,9 @@ function updateSchedulingReadiness(data) {
     if (data.communication_preferences) {
         renderCommunicationStrip(data.communication_preferences);
     }
+    const selectedDoctor = currentDoctorSelection() || data.doctor_name;
+    const selectedMatch = (data.doctor_matches || []).find((item) => item.doctor_name === selectedDoctor) || data.doctor_matches?.[0];
+    setBookingCalendar(data.calendar || selectedMatch?.calendar || null, { preferredDate: preferredBookingDate });
 }
 
 function getPatientFacingStatus(data) {
@@ -728,7 +973,7 @@ function getPatientFacingStatus(data) {
     return "DOCQ is ready to continue toward appointment scheduling.";
 }
 
-async function requestSuggestedAppointment(date, label) {
+async function requestSuggestedAppointment(date, label, time = "") {
     if (!latestIntake) {
         return;
     }
@@ -753,6 +998,7 @@ async function requestSuggestedAppointment(date, label) {
                 specialty: latestIntake.specialty,
                 doctor_name: currentDoctorSelection() || latestIntake.doctor_name,
                 appointment_date: date,
+                appointment_time: time || selectedBookingTime || "",
                 symptoms: latestIntake.symptoms || bookingSymptoms?.value?.trim() || "",
                 clinical_questionnaire: latestIntake.clinical_questionnaire || {},
                 vitals: latestIntake.vitals || latestIntake.known_context?.vitals_evaluation?.vitals || {},
@@ -792,7 +1038,12 @@ async function switchDoctorRecommendation(doctorName, options = {}) {
     }
     const typingBubble = showTypingIndicator();
     try {
-        const response = await fetch(`/api/doctor-availability?doctor_name=${encodeURIComponent(doctorName)}`, {
+        const params = new URLSearchParams({
+            doctor_name: doctorName,
+            preferred_date: preferredBookingDate || selectedBookingDate || "",
+            specialty: latestIntake.specialty || bookingSpecialty?.value || "",
+        });
+        const response = await fetch(`/api/doctor-availability?${params.toString()}`, {
             headers: { "X-CSRF-Token": csrfToken || "" },
         });
         const data = await response.json();
@@ -804,6 +1055,7 @@ async function switchDoctorRecommendation(doctorName, options = {}) {
             ...latestIntake,
             doctor_name: doctorName,
             available_dates: data.available_dates || [],
+            calendar: data.calendar || null,
             next_slot: data.available_dates?.[0] ? `${data.available_dates[0].date} ${data.available_dates[0].first_time}` : "No live slot available",
         };
         if (bookingDoctorName) {
@@ -819,6 +1071,41 @@ async function switchDoctorRecommendation(doctorName, options = {}) {
         removeTypingIndicator(typingBubble);
         if (!options.silent) {
             addBubble(error.message || "DOCQ could not switch doctors right now.", "bot");
+        }
+    }
+}
+
+async function refreshBookingAvailability(options = {}) {
+    const doctorName = currentDoctorSelection() || latestIntake?.doctor_name;
+    if (!doctorName || !latestIntake) {
+        return;
+    }
+    const preferredDate = options.preferredDate ?? preferredBookingDate;
+    const startDate = options.startDate || preferredDate || selectedBookingDate || clientTodayYmd();
+    try {
+        const params = new URLSearchParams({
+            doctor_name: doctorName,
+            preferred_date: preferredDate || "",
+            start_date: startDate || "",
+            specialty: latestIntake.specialty || bookingSpecialty?.value || "",
+        });
+        const response = await fetch(`/api/doctor-availability?${params.toString()}`, {
+            headers: { "X-CSRF-Token": csrfToken || "" },
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || "Availability refresh failed.");
+        }
+        latestIntake = {
+            ...latestIntake,
+            available_dates: data.available_dates || [],
+            calendar: data.calendar || null,
+            next_slot: data.recommendation ? `${data.recommendation.date} ${data.recommendation.time}` : latestIntake.next_slot,
+        };
+        setBookingCalendar(data.calendar || null, { preferredDate });
+    } catch (error) {
+        if (!options.silent) {
+            addBubble(error.message || "DOCQ could not refresh availability right now.", "bot");
         }
     }
 }
@@ -850,7 +1137,7 @@ function offerChatActions(data) {
         });
         actions.push({
             label: `${data.requires_review ? "Request" : "Book"} ${formatDisplayDate(`${first.date}T${first.first_time || "09:00"}`, "datetime")}`,
-            onClick: () => requestSuggestedAppointment(first.date, `${first.date} at ${first.first_time}`),
+            onClick: () => requestSuggestedAppointment(first.date, `${first.date} at ${first.first_time}`, first.first_time || ""),
         });
     }
     if ((data.doctor_matches || []).length > 1) {
@@ -1032,8 +1319,36 @@ document.querySelectorAll("[data-patient-panel]").forEach((node) => {
 document.querySelectorAll("[data-launch-symptom]").forEach((node) => {
     node.addEventListener("click", () => launchAssessmentWithSymptom(node.dataset.launchSymptom || ""));
 });
-openBookingModalButton?.addEventListener("click", showBookingModal);
+openBookingModalButton?.addEventListener("click", () => {
+    updateSchedulingReadiness(latestIntake || {});
+    showBookingModal();
+});
 closeBookingModalButton?.addEventListener("click", hideBookingModal);
+bookingCalendarPrev?.addEventListener("click", async () => {
+    const current = bookingVisibleMonth || monthStart(selectedBookingDate || clientTodayYmd());
+    bookingVisibleMonth = new Date(current.getFullYear(), current.getMonth() - 1, 1);
+    await refreshBookingAvailability({ startDate: ymdFromDate(bookingVisibleMonth), silent: true });
+});
+bookingCalendarNext?.addEventListener("click", async () => {
+    const current = bookingVisibleMonth || monthStart(selectedBookingDate || clientTodayYmd());
+    bookingVisibleMonth = new Date(current.getFullYear(), current.getMonth() + 1, 1);
+    await refreshBookingAvailability({ startDate: ymdFromDate(bookingVisibleMonth), silent: true });
+});
+document.querySelectorAll("[data-preferred-date]").forEach((button) => {
+    button.addEventListener("click", async () => {
+        const today = localDateFromYmd(clientTodayYmd());
+        const value = button.dataset.preferredDate === "tomorrow" ? ymdFromDate(addDays(today, 1)) : clientTodayYmd();
+        preferredBookingDate = value;
+        if (bookingPreferredDate) {
+            bookingPreferredDate.value = value;
+        }
+        await refreshBookingAvailability({ preferredDate: value });
+    });
+});
+bookingPreferredDate?.addEventListener("change", async () => {
+    preferredBookingDate = bookingPreferredDate.value || "";
+    await refreshBookingAvailability({ preferredDate: preferredBookingDate });
+});
 openSignupModalButton?.addEventListener("click", showSignupModal);
 closeSignupModalButton?.addEventListener("click", hideSignupModal);
 openProfileModalButton?.addEventListener("click", showProfileModal);
@@ -1111,6 +1426,7 @@ if (bookingForm) {
             specialty: bookingSpecialty?.value,
             doctor_name: currentDoctorSelection() || latestIntake?.doctor_name,
             appointment_date: bookingDate?.value,
+            appointment_time: bookingTime?.value,
             symptoms: bookingSymptoms?.value.trim(),
             clinical_questionnaire: latestIntake?.clinical_questionnaire || {},
             vitals: latestIntake?.vitals || latestIntake?.known_context?.vitals_evaluation?.vitals || {},

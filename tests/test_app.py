@@ -25,6 +25,8 @@ from docq_app.operational_playbooks import handle_no_show_recovery, handle_notif
 from docq_app.operational_workers import run_calendar_sync_worker, run_playbook_worker, run_reminder_worker, run_sla_worker
 from docq_app.reminder_runtime import enqueue_reminder_worker_task
 from docq_app.report_analysis import analyze_report_text
+from docq_app.scheduling_engine import build_doctor_calendar
+from docq_app.time_utils import get_current_date, get_current_time
 from docq_app.intelligence_rollups import build_operational_rollup, fetch_latest_rollup
 from docq_app.partitioning import build_partition_route
 from docq_app.projection_workers import rebuild_projection
@@ -156,6 +158,132 @@ def test_reminders_only_send_for_tomorrow_scheduled(app):
     cancelled_rows = [row for row in appointments if row["patient_name"] == "Cancelled Patient"]
     assert tomorrow_rows[0]["reminder_sent"] == 1
     assert cancelled_rows[0]["reminder_sent"] == 0
+
+
+def test_cron_reminders_requires_configured_secret(client, app):
+    app.config.update({"CRON_SECRET": "test-cron-secret", "ENV_NAME": "production"})
+    response = client.get("/api/cron/reminders")
+    assert response.status_code == 401
+
+
+def test_cron_reminders_queues_due_reminders(client, app):
+    tomorrow = (dt.date.today() + dt.timedelta(days=1)).isoformat()
+    app.config.update(
+        {
+            "CRON_SECRET": "test-cron-secret",
+            "ENABLE_WORKERS": False,
+            "TWILIO_ACCOUNT_SID": "",
+            "TWILIO_AUTH_TOKEN": "",
+            "TWILIO_FROM_NUMBER": "",
+            "TWILIO_WHATSAPP_FROM": "",
+            "SMTP_HOST": "",
+            "SMTP_USERNAME": "",
+            "SMTP_PASSWORD": "",
+            "SMTP_FROM": "",
+        }
+    )
+    with app.app_context():
+        with get_connection() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO appointments (
+                    patient_name, patient_email, phone, symptoms, specialty, doctor_name, branch,
+                    appointment_date, slot_time, slot_id, urgency, confidence, queue_state, status,
+                    created_by, follow_up_status, reminder_sent, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "Cron Patient",
+                    "cron-patient@example.com",
+                    "9999999999",
+                    "checkup",
+                    "General",
+                    "DOCQ General",
+                    "Mysore Central",
+                    tomorrow,
+                    "09:00",
+                    None,
+                    "Low",
+                    90.0,
+                    "awaiting-doctor",
+                    "scheduled",
+                    "Tester",
+                    "scheduled",
+                    0,
+                    dt.datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+            appointment_id = int(cursor.lastrowid)
+    response = client.get("/api/cron/reminders", headers={"Authorization": "Bearer test-cron-secret"})
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["status"] == "ok"
+    assert payload["reminders_queued"] == 1
+    with app.app_context():
+        appointment = get_appointment(appointment_id)
+        with get_connection() as connection:
+            reminders = connection.execute(
+                "SELECT * FROM notifications WHERE appointment_id = ? AND message_category = 'appointment_reminder'",
+                (appointment_id,),
+            ).fetchall()
+    assert appointment["reminder_sent"] == 1
+    assert len(reminders) == 3
+
+
+def test_same_day_past_slots_are_not_available(app):
+    today = get_current_date().isoformat()
+    now = get_current_time()
+    if (now + dt.timedelta(hours=1)).date() != now.date():
+        pytest.skip("No same-day future hour remains for this runtime.")
+    if (now - dt.timedelta(hours=1)).date() != now.date():
+        pytest.skip("No same-day past hour exists for this runtime.")
+    past_time = (now - dt.timedelta(hours=1)).strftime("%H:%M")
+    future_time = (now + dt.timedelta(hours=1)).strftime("%H:%M")
+    with app.app_context():
+        with get_connection() as connection:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO doctor_slots (doctor_name, specialty, branch, slot_date, slot_time, status)
+                VALUES ('DOCQ Cardiology', 'Cardiology', 'Mysore Central', ?, ?, 'available')
+                """,
+                (today, past_time),
+            )
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO doctor_slots (doctor_name, specialty, branch, slot_date, slot_time, status)
+                VALUES ('DOCQ Cardiology', 'Cardiology', 'Mysore Central', ?, ?, 'available')
+                """,
+                (today, future_time),
+            )
+        calendar = build_doctor_calendar("DOCQ Cardiology", start_date=today, days=1, specialty="Cardiology")
+    day = calendar["days"][0]
+    slot_by_time = {slot["time"]: slot for slot in day["slots"]}
+    assert slot_by_time[past_time]["available"] is False
+    assert slot_by_time[future_time]["available"] is True
+
+
+def test_booking_reserves_selected_appointment_time(app):
+    tomorrow = (get_current_date() + dt.timedelta(days=1)).isoformat()
+    with app.app_context():
+        appointment = create_appointment(
+            {
+                "patient_name": "Slot Choice",
+                "patient_email": "slot-choice@example.com",
+                "phone": "9444444444",
+                "patient_age": 40,
+                "medical_history": "",
+                "symptoms": "Routine cardiac review",
+                "specialty": "Cardiology",
+                "doctor_name": "DOCQ Cardiology",
+                "appointment_date": tomorrow,
+                "appointment_time": "14:30",
+            },
+            actor_name="Tester",
+            actor_role="admin",
+            config=app.config,
+        )
+    assert appointment["appointment_date"] == tomorrow
+    assert appointment["slot_time"] == "14:30"
 
 
 def test_doctor_route_requires_doctor_role(client):

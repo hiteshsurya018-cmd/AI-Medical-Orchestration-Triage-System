@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import datetime as dt
-
 from ..tools import ToolRegistry, build_default_registry
+from ..time_utils import get_current_date
 from ..workflow import CaseWorkflowState, WorkflowStage
 
 
@@ -50,21 +49,28 @@ class SchedulingAgent:
         )
         state.recommended_doctor = continuity
         state.doctor_matches = doctor_matches
+        selected_doctor = doctor_matches[0] if doctor_matches else continuity
         state.available_dates = self._invoke_tool(
             state,
             "fetch_available_dates",
-            doctor_name=str(continuity["doctor_name"]),
+            doctor_name=str(selected_doctor["doctor_name"]),
         )
         slot = self._invoke_tool(
             state,
             "find_next_live_slot",
-            doctor_name=str(continuity["doctor_name"]),
-            requested_date=dt.date.today().isoformat(),
+            doctor_name=str(selected_doctor["doctor_name"]),
+            requested_date=get_current_date().isoformat(),
         )
-        state.analysis["doctor_name"] = str(continuity["doctor_name"])
-        state.analysis["branch"] = str(continuity["branch"])
+        state.analysis["doctor_name"] = str(selected_doctor["doctor_name"])
+        state.analysis["branch"] = str(selected_doctor["branch"])
         state.analysis["continuity_reason"] = str(continuity["continuity_reason"])
         state.analysis["doctor_matches"] = doctor_matches
+        state.analysis["recommended_appointment"] = {
+            "doctor_name": str(selected_doctor["doctor_name"]),
+            "slot": f"{slot['slot_date']} {slot['slot_time']}" if slot else str(selected_doctor.get("next_available_slot") or ""),
+            "reason": str(selected_doctor.get("selection_reason") or "Earliest available doctor with manageable queue load."),
+            "availability_score": selected_doctor.get("availability_score", 0),
+        }
         state.analysis["next_slot"] = f"{slot['slot_date']} {slot['slot_time']}" if slot else "No live slot available"
         state.analysis["available_dates"] = state.available_dates
         state.analysis["booking_mode"] = (

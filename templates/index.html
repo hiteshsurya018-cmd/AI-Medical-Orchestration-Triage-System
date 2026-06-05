@@ -432,7 +432,7 @@
     </template>
 
     <div id="booking-modal" class="fixed inset-0 z-40 hidden items-center justify-center bg-black/50 px-4 backdrop-blur-sm">
-        <div class="w-full max-w-[480px] rounded-[16px] border border-white/10 bg-docq-surface p-6 shadow-panel">
+        <div class="max-h-[92vh] w-full max-w-[980px] overflow-y-auto rounded-[16px] border border-white/10 bg-docq-surface p-6 shadow-panel">
             <div class="mb-5 flex items-center justify-between">
                 <div>
                     <p class="text-[11px] font-medium uppercase tracking-[0.22em] text-docq-muted">Request Appointment</p>
@@ -442,49 +442,91 @@
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
             </div>
-            <form id="booking-form" class="space-y-3">
+            <form id="booking-form" class="grid gap-5 lg:grid-cols-[0.78fr_1.22fr]">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <div class="space-y-1.5">
-                    <label for="patient-name" class="text-sm font-medium text-docq-text">Patient full name</label>
-                    <input id="patient-name" type="text" name="patient_name" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none focus:border-docq-accent focus:ring-2 focus:ring-[rgba(59,123,248,0.22)]" placeholder="Patient full name" required>
-                </div>
-                <div class="space-y-1.5">
-                    <label for="patient-email" class="text-sm font-medium text-docq-text">Email address</label>
-                    <input id="patient-email" type="email" name="patient_email" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none focus:border-docq-accent focus:ring-2 focus:ring-[rgba(59,123,248,0.22)]" placeholder="Email address">
-                </div>
-                <div class="grid grid-cols-2 gap-3">
+                <section class="space-y-3">
                     <div class="space-y-1.5">
-                        <label for="patient-phone" class="text-sm font-medium text-docq-text">Phone number</label>
-                        <input id="patient-phone" type="tel" name="phone" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none focus:border-docq-accent focus:ring-2 focus:ring-[rgba(59,123,248,0.22)]" placeholder="Phone number" required>
+                        <label for="patient-name" class="text-sm font-medium text-docq-text">Patient full name</label>
+                        <input id="patient-name" type="text" name="patient_name" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none focus:border-docq-accent focus:ring-2 focus:ring-[rgba(59,123,248,0.22)]" placeholder="Patient full name" required>
                     </div>
                     <div class="space-y-1.5">
-                        <label for="booking-age" class="text-sm font-medium text-docq-text">Age</label>
-                        <input id="booking-age" type="number" name="patient_age" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none" readonly>
+                        <label for="patient-email" class="text-sm font-medium text-docq-text">Email address</label>
+                        <input id="patient-email" type="email" name="patient_email" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none focus:border-docq-accent focus:ring-2 focus:ring-[rgba(59,123,248,0.22)]" placeholder="Email address">
                     </div>
-                </div>
-                <div class="space-y-1.5">
-                    <label for="booking-specialty" class="text-sm font-medium text-docq-text">Specialty</label>
-                    <input id="booking-specialty" type="text" name="specialty" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none" readonly>
-                </div>
-                <div class="space-y-2">
-                    <div class="flex items-center justify-between gap-3">
-                        <label class="text-sm font-medium text-docq-text">Choose Doctor</label>
-                        <span id="booking-doctor-hint" class="text-xs text-docq-muted">DOCQ highlights continuity-first doctors.</span>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="space-y-1.5">
+                            <label for="patient-phone" class="text-sm font-medium text-docq-text">Phone number</label>
+                            <input id="patient-phone" type="tel" name="phone" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none focus:border-docq-accent focus:ring-2 focus:ring-[rgba(59,123,248,0.22)]" placeholder="Phone number" required>
+                        </div>
+                        <div class="space-y-1.5">
+                            <label for="booking-age" class="text-sm font-medium text-docq-text">Age</label>
+                            <input id="booking-age" type="number" name="patient_age" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none" readonly>
+                        </div>
                     </div>
-                    <input id="booking-doctor-name" type="hidden" name="doctor_name">
-                    <div id="booking-doctor-cards" class="flex gap-3 overflow-x-auto pb-2"></div>
-                </div>
-                <div class="space-y-1.5">
-                    <label for="booking-date" class="text-sm font-medium text-docq-text">Preferred date</label>
-                    <select id="booking-date" name="appointment_date" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none focus:border-docq-accent focus:ring-2 focus:ring-[rgba(59,123,248,0.22)]" required>
-                        <option value="" selected disabled>Select preferred date</option>
-                    </select>
-                </div>
-                <div class="space-y-1.5">
-                    <label for="booking-symptoms" class="text-sm font-medium text-docq-text">Symptoms</label>
-                    <textarea id="booking-symptoms" name="symptoms" rows="4" class="w-full rounded-card border border-white/10 bg-docq-elevated px-4 py-3 text-sm text-docq-text outline-none" readonly></textarea>
-                </div>
-                <button id="booking-submit" type="submit" class="inline-flex h-12 w-full items-center justify-center rounded-action bg-docq-accent text-sm font-medium text-white">Book Appointment</button>
+                    <div class="space-y-1.5">
+                        <label for="booking-specialty" class="text-sm font-medium text-docq-text">Specialty</label>
+                        <input id="booking-specialty" type="text" name="specialty" class="h-12 w-full rounded-card border border-white/10 bg-docq-elevated px-4 text-sm text-docq-text outline-none" readonly>
+                    </div>
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between gap-3">
+                            <label class="text-sm font-medium text-docq-text">Choose Doctor</label>
+                            <span id="booking-doctor-hint" class="text-xs text-docq-muted">DOCQ highlights continuity-first doctors.</span>
+                        </div>
+                        <input id="booking-doctor-name" type="hidden" name="doctor_name">
+                        <div id="booking-doctor-cards" class="flex gap-3 overflow-x-auto pb-2"></div>
+                    </div>
+                    <div class="space-y-1.5">
+                        <label for="booking-symptoms" class="text-sm font-medium text-docq-text">Symptoms</label>
+                        <textarea id="booking-symptoms" name="symptoms" rows="4" class="w-full rounded-card border border-white/10 bg-docq-elevated px-4 py-3 text-sm text-docq-text outline-none" readonly></textarea>
+                    </div>
+                </section>
+                <section class="space-y-4">
+                    <input id="booking-date" type="hidden" name="appointment_date" required>
+                    <input id="booking-time" type="hidden" name="appointment_time" required>
+                    <div class="booking-preference-panel">
+                        <div>
+                            <p class="text-[11px] uppercase tracking-[0.2em] text-docq-muted">Preferred Appointment Date</p>
+                            <h3 class="mt-1 text-base font-medium text-docq-text">Choose timing priority</h3>
+                        </div>
+                        <div class="booking-preference-actions">
+                            <button type="button" data-preferred-date="today">Today</button>
+                            <button type="button" data-preferred-date="tomorrow">Tomorrow</button>
+                            <label>
+                                <span>Choose Date</span>
+                                <input id="booking-preferred-date" type="date">
+                            </label>
+                        </div>
+                    </div>
+                    <div id="booking-recommendation" class="booking-recommendation hidden"></div>
+                    <div class="booking-calendar-shell">
+                        <div class="booking-calendar-toolbar">
+                            <button type="button" id="booking-calendar-prev" aria-label="Previous month">&lt;</button>
+                            <strong id="booking-calendar-title">Availability</strong>
+                            <button type="button" id="booking-calendar-next" aria-label="Next month">&gt;</button>
+                        </div>
+                        <div class="booking-calendar-weekdays">
+                            <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+                        </div>
+                        <div id="booking-calendar-grid" class="booking-calendar-grid"></div>
+                    </div>
+                    <div class="booking-calendar-legend">
+                        <span><i class="legend-dot available"></i>High</span>
+                        <span><i class="legend-dot moderate"></i>Moderate</span>
+                        <span><i class="legend-dot low"></i>Limited</span>
+                        <span><i class="legend-dot booked"></i>Booked</span>
+                        <span><i class="legend-dot unavailable"></i>Unavailable</span>
+                        <span><i class="legend-ring preferred"></i>Preferred</span>
+                        <span><i class="legend-ring recommended"></i>Recommended</span>
+                    </div>
+                    <div>
+                        <div class="mb-2 flex items-center justify-between">
+                            <h3 class="text-base font-medium text-docq-text">Available Slots</h3>
+                            <span id="booking-slot-summary" class="text-xs text-docq-muted">Select a date</span>
+                        </div>
+                        <div id="booking-slot-grid" class="booking-slot-grid"></div>
+                    </div>
+                    <button id="booking-submit" type="submit" class="inline-flex h-12 w-full items-center justify-center rounded-action bg-docq-accent text-sm font-medium text-white">Book Appointment</button>
+                </section>
             </form>
             <p id="booking-feedback" class="mt-3 hidden rounded-card px-3 py-3 text-sm"></p>
         </div>
@@ -555,6 +597,6 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='docq.js', v='20260520-whatsapp-onboarding') }}"></script>
+    <script src="{{ url_for('static', filename='docq.js', v='20260605-smart-calendar') }}"></script>
 </body>
 </html>

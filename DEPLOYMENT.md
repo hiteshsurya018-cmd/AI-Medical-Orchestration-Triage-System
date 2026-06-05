@@ -16,6 +16,7 @@ DOCQ_LOAD_MODELS_ON_STARTUP=true
 DOCQ_ENABLE_RATE_LIMITS=true
 DOCQ_ENABLE_METRICS=true
 DOCQ_ENABLE_EXTERNAL_INTEGRATIONS=false
+CRON_SECRET=<random string for Vercel Cron authorization>
 ```
 
 For a Vercel demo that boots without persistent storage, leave `DOCQ_DATABASE_URL` unset. The app will use `sqlite:////tmp/docq.db` on Vercel.
@@ -28,6 +29,23 @@ DOCQ_DB_PATH=/tmp/docq.db
 ```
 
 The current application schema initializer is SQLite-oriented, so a production Postgres deployment needs a full table-creation migration before `DOCQ_DATABASE_URL=postgresql://...` will be reliable.
+
+Appointment notifications also require the same provider secrets you use locally:
+
+```text
+SMTP_HOST=<smtp host>
+SMTP_PORT=<smtp port>
+SMTP_USERNAME=<smtp username>
+SMTP_PASSWORD=<smtp password>
+SMTP_FROM=<sender address>
+TWILIO_ACCOUNT_SID=<twilio account sid>
+TWILIO_AUTH_TOKEN=<twilio auth token>
+TWILIO_FROM_NUMBER=<sms sender>
+TWILIO_WHATSAPP_FROM=<whatsapp sender>
+DOCQ_N8N_CONFIRMATION_WEBHOOK=<optional confirmation webhook>
+```
+
+Vercel invokes `/api/cron/reminders` daily from the `vercel.json` cron entry. The endpoint queues reminders for tomorrow's appointments and processes queued notification deliveries.
 
 Deploy with Vercel CLI:
 

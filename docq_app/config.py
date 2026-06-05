@@ -49,6 +49,7 @@ class Config:
         self.TWILIO_FROM_NUMBER = os.getenv("TWILIO_FROM_NUMBER")
         self.TWILIO_WHATSAPP_FROM = os.getenv("TWILIO_WHATSAPP_FROM")
         self.TWILIO_WHATSAPP_SANDBOX_JOIN_CODE = os.getenv("TWILIO_WHATSAPP_SANDBOX_JOIN_CODE")
+        self.CRON_SECRET = os.getenv("CRON_SECRET", os.getenv("DOCQ_CRON_SECRET", ""))
         self.DOCQ_N8N_CONFIRMATION_WEBHOOK = os.getenv(
             "DOCQ_N8N_CONFIRMATION_WEBHOOK",
             "https://active-pecan-unwrapped.ngrok-free.dev/webhook/docq-confirmation",

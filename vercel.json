@@ -5,5 +5,11 @@
     "DOCQ_EVENT_BUS_BACKEND": "inprocess",
     "DOCQ_ENABLE_WORKERS": "false",
     "DOCQ_SESSION_COOKIE_SECURE": "true"
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/reminders",
+      "schedule": "30 3 * * *"
+    }
+  ]
 }

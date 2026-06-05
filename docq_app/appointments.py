@@ -43,7 +43,16 @@ from .pydantic_compat import model_dump
 from .repositories import EvaluationRepository, GovernanceRepository, ReplayRepository, TelemetryRepository, WorkflowEventRepository
 from .replay_snapshots import hydrate_workflow_replay
 from .runtime_diagnostics import build_migration_audit
+from .scheduling_engine import (
+    build_doctor_calendar,
+    compact_available_dates,
+    ensure_scheduling_tables,
+    rank_doctor_availability,
+    reserve_best_slot,
+    sync_default_doctor_schedules,
+)
 from .tenancy import get_current_tenant_key
+from .time_utils import get_current_date, get_current_time, is_future_slot
 
 EVALUATION_WORKFLOW_PREFIX = "ml-eval:"
 GOVERNANCE_WORKFLOW_PREFIX = "ml-governance:"
@@ -534,6 +543,33 @@ def init_db() -> None:
                 status TEXT NOT NULL DEFAULT 'available',
                 appointment_id INTEGER,
                 UNIQUE(doctor_name, slot_date, slot_time)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS doctor_schedule_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                doctor_name TEXT NOT NULL UNIQUE,
+                specialty TEXT NOT NULL,
+                branch TEXT NOT NULL,
+                working_hours_json TEXT NOT NULL,
+                slot_interval_minutes INTEGER NOT NULL DEFAULT 30,
+                status TEXT NOT NULL DEFAULT 'active',
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS doctor_unavailability (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                doctor_name TEXT NOT NULL,
+                unavailable_date TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL,
+                UNIQUE(doctor_name, unavailable_date, reason)
             )
             """
         )
@@ -1540,7 +1576,9 @@ def _parse_json(value: str | None, default: Any) -> Any:
 def seed_slots(enabled: bool, days: int = 5) -> None:
     if not enabled:
         return
-    today = dt.date.today()
+    ensure_scheduling_tables()
+    sync_default_doctor_schedules([dict(doctor) for doctor in DOCTOR_ACCOUNTS])
+    today = get_current_date()
     with get_connection() as connection:
         for doctor in DOCTOR_ACCOUNTS:
             for offset in range(days):
@@ -1556,7 +1594,9 @@ def seed_slots(enabled: bool, days: int = 5) -> None:
 
 
 def seed_slots_for_doctor(doctor_name: str, specialty: str, branch: str, days: int = 14) -> None:
-    today = dt.date.today()
+    ensure_scheduling_tables()
+    sync_default_doctor_schedules([{"doctor_name": doctor_name, "specialty": specialty, "branch": branch}])
+    today = get_current_date()
     with get_connection() as connection:
         for offset in range(days):
             slot_date = (today + dt.timedelta(days=offset)).isoformat()
@@ -1911,58 +1951,27 @@ def fetch_latest_workflow_feature_snapshots(limit: int = 100) -> list[FeatureSna
 
 def allocate_live_slot(doctor_name: str, requested_date: str):
     with get_connection() as connection:
-        return connection.execute(
+        date_floor = max(requested_date, get_current_date().isoformat())
+        rows = connection.execute(
             """
             SELECT *
             FROM doctor_slots
             WHERE doctor_name = ? AND slot_date >= ? AND status = 'available'
             ORDER BY CASE WHEN slot_date = ? THEN 0 ELSE 1 END, slot_date ASC, slot_time ASC
-            LIMIT 1
+            LIMIT 20
             """,
-            (doctor_name, requested_date, requested_date),
-        ).fetchone()
+            (doctor_name, date_floor, date_floor),
+        ).fetchall()
+    return next((row for row in rows if row["slot_time"] and row["slot_date"] and is_future_slot(str(row["slot_date"]), str(row["slot_time"]))), None)
 
 
 def fetch_available_dates(doctor_name: str, days: int = 7) -> list[dict[str, str]]:
-    today = dt.date.today().isoformat()
-    with get_connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT slot_date, MIN(slot_time) AS first_time, COUNT(*) AS open_count
-            FROM doctor_slots
-            WHERE doctor_name = ? AND slot_date >= ? AND status = 'available'
-            GROUP BY slot_date
-            ORDER BY slot_date ASC
-            LIMIT ?
-            """,
-            (doctor_name, today, days),
-        ).fetchall()
-    return [
-        {"date": row["slot_date"], "first_time": row["first_time"], "open_count": str(row["open_count"])}
-        for row in rows
-    ]
+    calendar = build_doctor_calendar(doctor_name, start_date=get_current_date().isoformat(), days=max(days, 1))
+    return compact_available_dates(calendar, limit=days)
 
 
-def _reserve_next_available_slot(connection: sqlite3.Connection, doctor_name: str, requested_date: str):
-    slot = connection.execute(
-        """
-        SELECT *
-        FROM doctor_slots
-        WHERE doctor_name = ? AND slot_date >= ? AND status = 'available'
-        ORDER BY CASE WHEN slot_date = ? THEN 0 ELSE 1 END, slot_date ASC, slot_time ASC
-        LIMIT 1
-        """,
-        (doctor_name, requested_date, requested_date),
-    ).fetchone()
-    if not slot:
-        return None
-    cursor = connection.execute(
-        "UPDATE doctor_slots SET status = 'reserved' WHERE id = ? AND status = 'available'",
-        (slot["id"],),
-    )
-    if cursor.rowcount != 1:
-        return None
-    return slot
+def _reserve_next_available_slot(connection: sqlite3.Connection, doctor_name: str, requested_date: str, requested_time: str = ""):
+    return reserve_best_slot(connection, doctor_name, requested_date, requested_time)
 
 
 def _mark_reserved_slot_booked(connection: sqlite3.Connection, slot_id: int, appointment_id: int) -> None:
@@ -1970,7 +1979,7 @@ def _mark_reserved_slot_booked(connection: sqlite3.Connection, slot_id: int, app
 
 
 def fetch_doctor_slots(doctor_name: str, days: int = 5) -> list[sqlite3.Row]:
-    today = dt.date.today().isoformat()
+    today = get_current_date().isoformat()
     with get_connection() as connection:
         return connection.execute(
             """
@@ -2591,7 +2600,7 @@ def recommend_doctor_matches(specialty: str, phone: str = "", patient_email: str
                 "badges": badges or ["Available"],
             }
         )
-    ranked.sort(key=lambda item: (item["score"], item["previous_visits"]), reverse=True)
+    ranked = rank_doctor_availability(ranked)
     return ranked[:3]
 
 
@@ -2607,7 +2616,7 @@ def build_patient_workspace_context(patient_email: str) -> dict[str, object]:
             "notifications": [],
         }
     appointments = fetch_patient_appointments(phone=str(profile["phone"] or ""), patient_email=patient_email, limit=12)
-    upcoming = [row for row in appointments if row["status"] not in {"cancelled"} and row["appointment_date"] >= dt.date.today().isoformat()][:4]
+    upcoming = [row for row in appointments if row["status"] not in {"cancelled"} and row["appointment_date"] >= get_current_date().isoformat()][:4]
     recent = appointments[:6]
     timeline = [
         f"{row['appointment_date']} - {row['specialty']} with {row['doctor_name']}"
@@ -2777,6 +2786,7 @@ def create_appointment(payload: dict[str, object], actor_name: str, actor_role: 
     requested_specialty = normalize_specialty(raw_requested_specialty) if raw_requested_specialty else ""
     requested_doctor_name = str(payload.get("doctor_name", "")).strip()
     appointment_date = str(payload.get("appointment_date", "")).strip()
+    appointment_time = str(payload.get("appointment_time") or payload.get("slot_time") or "").strip()
     patient_age = None
     if raw_age not in (None, ""):
         try:
@@ -2788,7 +2798,7 @@ def create_appointment(payload: dict[str, object], actor_name: str, actor_role: 
         raise ValueError("All appointment fields are required except patient email.")
 
     scheduled_date = dt.datetime.strptime(appointment_date, "%Y-%m-%d").date()
-    if scheduled_date < dt.date.today():
+    if scheduled_date < get_current_date():
         raise ValueError("Appointment date cannot be in the past.")
     created_at = dt.datetime.now().isoformat(timespec="seconds")
     tenant_key = get_current_tenant_key()
@@ -2850,7 +2860,7 @@ def create_appointment(payload: dict[str, object], actor_name: str, actor_role: 
         queue_state = determine_queue_state(str(analysis["urgency"]), float(analysis["confidence"]))
         status = "scheduled" if queue_state == "awaiting-doctor" else "review"
         connection.execute("BEGIN IMMEDIATE")
-        slot = _reserve_next_available_slot(connection, doctor_info["doctor"], appointment_date)
+        slot = _reserve_next_available_slot(connection, doctor_info["doctor"], appointment_date, appointment_time)
         if not slot:
             connection.rollback()
             raise ValueError("No live slots are available for the selected doctor.")
@@ -2988,7 +2998,7 @@ def reschedule_appointment(appointment_id: int, new_date: str, actor_name: str, 
     if not appointment:
         raise ValueError("Appointment not found.")
     requested_date = dt.datetime.strptime(new_date, "%Y-%m-%d").date()
-    if requested_date < dt.date.today():
+    if requested_date < get_current_date():
         raise ValueError("New appointment date cannot be in the past.")
     with get_connection() as connection:
         connection.execute("BEGIN IMMEDIATE")
@@ -3093,7 +3103,7 @@ def reassign_appointment_doctor(appointment_id: int, doctor_name: str, reason: s
     doctor = _doctor_account_by_name(doctor_name)
     if doctor is None:
         raise ValueError("Selected doctor is not available in DOCQ.")
-    requested_date = str(appointment["appointment_date"] or dt.date.today().isoformat())
+    requested_date = str(appointment["appointment_date"] or get_current_date().isoformat())
     with get_connection() as connection:
         connection.execute("BEGIN IMMEDIATE")
         new_slot = _reserve_next_available_slot(connection, doctor_name, requested_date)

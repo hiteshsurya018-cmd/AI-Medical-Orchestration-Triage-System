@@ -4778,3 +4778,307 @@ body[data-theme="light"] .command-nav-rail {
         display: grid;
     }
 }
+
+.booking-preference-panel,
+.booking-calendar-shell,
+.booking-recommendation {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.035);
+    padding: 14px;
+}
+
+.booking-preference-panel {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+}
+
+.booking-preference-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.booking-preference-actions button,
+.booking-preference-actions label {
+    min-height: 38px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.045);
+    color: #f0f2f7;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 8px 10px;
+}
+
+.booking-preference-actions label {
+    display: grid;
+    gap: 6px;
+}
+
+.booking-preference-actions input {
+    height: 34px;
+    font-size: 0.78rem;
+}
+
+.booking-recommendation {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    border-color: rgba(45, 212, 191, 0.35);
+    background: rgba(45, 212, 191, 0.08);
+}
+
+.booking-recommendation p,
+.booking-recommendation small,
+.booking-recommendation span {
+    color: #9fb3c8;
+}
+
+.booking-recommendation strong {
+    display: block;
+    margin-top: 3px;
+    color: #f0f2f7;
+}
+
+.booking-calendar-toolbar,
+.booking-calendar-weekdays,
+.booking-calendar-grid,
+.booking-calendar-legend,
+.booking-slot-grid {
+    display: grid;
+}
+
+.booking-calendar-toolbar {
+    grid-template-columns: 38px minmax(0, 1fr) 38px;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.booking-calendar-toolbar button {
+    height: 38px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.045);
+    color: #f0f2f7;
+}
+
+.booking-calendar-toolbar strong {
+    text-align: center;
+    color: #f0f2f7;
+}
+
+.booking-calendar-weekdays,
+.booking-calendar-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.booking-calendar-weekdays span {
+    color: #8b90a0;
+    font-size: 0.72rem;
+    text-align: center;
+}
+
+.booking-calendar-day {
+    position: relative;
+    min-height: 78px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 8px;
+    text-align: left;
+    color: #f0f2f7;
+    transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.booking-calendar-day:not(:disabled):hover {
+    transform: translateY(-1px);
+    border-color: rgba(255, 255, 255, 0.28);
+}
+
+.booking-calendar-day:disabled {
+    cursor: not-allowed;
+    opacity: 0.64;
+}
+
+.booking-calendar-day.outside-month {
+    opacity: 0.42;
+}
+
+.booking-calendar-day.today .booking-day-number {
+    border-bottom: 2px solid #ffffff;
+}
+
+.booking-calendar-day.selected {
+    outline: 2px solid #ffffff;
+}
+
+.booking-calendar-day.preferred {
+    box-shadow: inset 0 0 0 2px #a78bfa;
+}
+
+.booking-calendar-day.recommended {
+    border-color: #2dd4bf;
+}
+
+.booking-calendar-day.availability-available {
+    background: rgba(52, 211, 153, 0.16);
+}
+
+.booking-calendar-day.availability-moderate {
+    background: rgba(59, 130, 246, 0.16);
+}
+
+.booking-calendar-day.availability-low {
+    background: rgba(245, 158, 11, 0.18);
+}
+
+.booking-calendar-day.availability-booked {
+    background: rgba(248, 113, 113, 0.16);
+}
+
+.booking-calendar-day.availability-unavailable {
+    background: rgba(148, 163, 184, 0.12);
+}
+
+.booking-day-number,
+.booking-day-state,
+.booking-day-meta {
+    display: block;
+}
+
+.booking-day-number {
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+
+.booking-day-state {
+    margin-top: 8px;
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+
+.booking-day-meta {
+    margin-top: 2px;
+    color: #9fb3c8;
+    font-size: 0.68rem;
+}
+
+.booking-calendar-legend {
+    grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+    gap: 8px;
+    color: #9fb3c8;
+    font-size: 0.76rem;
+}
+
+.booking-calendar-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.legend-dot,
+.legend-ring {
+    display: inline-block;
+    width: 13px;
+    height: 13px;
+    border-radius: 999px;
+}
+
+.legend-dot.available { background: #34d399; }
+.legend-dot.moderate { background: #3b82f6; }
+.legend-dot.low { background: #f59e0b; }
+.legend-dot.booked { background: #f87171; }
+.legend-dot.unavailable { background: #94a3b8; }
+.legend-ring.preferred { border: 2px solid #a78bfa; }
+.legend-ring.recommended { border: 2px solid #2dd4bf; }
+
+.booking-slot-grid {
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    gap: 8px;
+}
+
+.booking-slot-card {
+    min-height: 78px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 10px;
+    text-align: left;
+}
+
+.booking-slot-card.available {
+    background: rgba(52, 211, 153, 0.12);
+    color: #f0f2f7;
+}
+
+.booking-slot-card.available:hover,
+.booking-slot-card.selected {
+    border-color: #2dd4bf;
+    background: rgba(45, 212, 191, 0.18);
+}
+
+.booking-slot-card.unavailable {
+    background: rgba(148, 163, 184, 0.1);
+    color: #9fb3c8;
+}
+
+.booking-slot-card strong,
+.booking-slot-card span,
+.booking-slot-card small {
+    display: block;
+}
+
+.booking-slot-card span {
+    margin-top: 6px;
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.booking-slot-card small {
+    margin-top: 4px;
+    color: #9fb3c8;
+    font-size: 0.68rem;
+}
+
+.booking-empty-state {
+    grid-column: 1 / -1;
+    border: 1px dashed rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    color: #9fb3c8;
+    padding: 14px;
+}
+
+@media (max-width: 760px) {
+    .booking-preference-panel,
+    .booking-recommendation {
+        display: grid;
+    }
+
+    .booking-preference-actions {
+        justify-content: stretch;
+    }
+
+    .booking-preference-actions button,
+    .booking-preference-actions label {
+        flex: 1 1 100%;
+    }
+
+    .booking-calendar-day {
+        min-height: 64px;
+        padding: 6px;
+    }
+
+    .booking-day-state {
+        margin-top: 4px;
+        font-size: 0.62rem;
+    }
+
+    .booking-day-meta {
+        display: none;
+    }
+}

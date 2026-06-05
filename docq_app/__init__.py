@@ -38,6 +38,7 @@ from .observability import begin_request_trace, finalize_request_trace, metrics_
 from .pydantic_compat import model_dump
 from .production_db import check_database_readiness
 from .report_analysis import analyze_report_text, extract_text_from_upload, save_report_file
+from .scheduling_engine import build_department_calendar, build_doctor_calendar, compact_available_dates, doctor_workload
 from .tenancy import fetch_tenant_summary, user_has_tenant_access
 from .runtime_topology import assign_consumer_ownership, list_runtime_nodes, record_node_heartbeat
 from .workflow_engine import CaseWorkflowEngine
@@ -150,6 +151,14 @@ def create_app(test_config: dict | None = None) -> Flask:
             "extraction_method": extracted["extraction_method"],
             **analysis,
         }
+
+    def _is_authorized_cron_request() -> bool:
+        cron_secret = str(app.config.get("CRON_SECRET") or "").strip()
+        if cron_secret:
+            return request.headers.get("Authorization", "") == f"Bearer {cron_secret}"
+        if bool(app.config.get("TESTING")):
+            return True
+        return str(app.config.get("ENV_NAME", "development")).lower() != "production"
 
     @app.before_request
     def _load_user() -> None:
@@ -1092,12 +1101,26 @@ def create_app(test_config: dict | None = None) -> Flask:
     @app.route("/api/doctor-availability", methods=["GET"])
     def doctor_availability():
         doctor_name = str(request.args.get("doctor_name", "")).strip()
+        preferred_date = str(request.args.get("preferred_date", "")).strip()
+        start_date = str(request.args.get("start_date", "")).strip()
+        specialty = str(request.args.get("specialty", "")).strip()
         if not doctor_name:
             return jsonify({"error": "doctor_name is required."}), 400
+        calendar = build_doctor_calendar(
+            doctor_name,
+            start_date=start_date or preferred_date or None,
+            days=42,
+            preferred_date=preferred_date,
+            specialty=specialty,
+        )
+        workload = doctor_workload(doctor_name)
         return jsonify(
             {
                 "doctor_name": doctor_name,
-                "available_dates": fetch_available_dates(doctor_name),
+                "available_dates": compact_available_dates(calendar),
+                "calendar": calendar,
+                "workload": workload,
+                "recommendation": calendar.get("first_available"),
             }
         )
 
@@ -1107,17 +1130,53 @@ def create_app(test_config: dict | None = None) -> Flask:
         requested_specialty = str(request.args.get("specialty", "")).strip()
         patient_email = str(request.args.get("patient_email", "")).strip()
         phone = str(request.args.get("phone", "")).strip()
+        preferred_date = str(request.args.get("preferred_date", "")).strip()
         classification = classify_department(symptoms, fallback_specialty=requested_specialty or "General")
         specialty = str(classification["specialty"])
         matches = recommend_doctor_matches(specialty, phone=phone, patient_email=patient_email)
+        department_calendar = build_department_calendar(
+            specialty,
+            doctors=[str(match["doctor_name"]) for match in matches],
+            start_date=preferred_date or None,
+            days=42,
+            preferred_date=preferred_date,
+        )
+        best_match = matches[0] if matches else {}
         return jsonify(
             {
                 "classification": classification,
                 "specialty": specialty,
                 "department": classification["department"],
                 "doctor_matches": matches,
+                "department_calendar": department_calendar,
+                "recommended_appointment": {
+                    "doctor_name": best_match.get("doctor_name", ""),
+                    "slot": best_match.get("next_available_slot", ""),
+                    "reason": "Earliest available specialist with the best availability and workload score.",
+                    "availability_score": best_match.get("availability_score", 0),
+                },
                 "selection_policy": "patient_choice_or_earliest_available",
                 "message": f"Select a doctor in {classification['department']} or continue with the earliest available appointment.",
+            }
+        )
+
+    @app.route("/api/cron/reminders", methods=["GET"])
+    def cron_reminders():
+        if not _is_authorized_cron_request():
+            return jsonify({"error": "unauthorized"}), 401
+        reminders_queued = send_due_reminders(app.config)
+        notifications_processed = process_notification_queue(app.config)
+        record_automation_run(
+            "vercel-cron-reminders",
+            "completed",
+            f"Queued {reminders_queued} reminder batch(es) and processed {notifications_processed} notification job(s).",
+            int(reminders_queued) + int(notifications_processed),
+        )
+        return jsonify(
+            {
+                "status": "ok",
+                "reminders_queued": reminders_queued,
+                "notifications_processed": notifications_processed,
             }
         )
 
