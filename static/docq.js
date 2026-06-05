@@ -194,13 +194,28 @@ function availabilityCopy(day) {
         return { icon: "-", label: "Unavailable", title: "No schedule published" };
     }
     const map = {
-        available: { icon: "+", label: "Available", title: "High availability" },
-        moderate: { icon: "~", label: "Moderate", title: "Moderate availability" },
-        low: { icon: "!", label: "Limited", title: "Limited availability" },
-        booked: { icon: "x", label: "Booked", title: "Fully booked" },
-        unavailable: { icon: "-", label: "Unavailable", title: day.unavailable_reason || "Doctor unavailable" },
+        available: { icon: "+", label: "High", title: "High availability", color: "#3DB870" },
+        moderate: { icon: "~", label: "Moderate", title: "Moderate availability", color: "#4A9EE8" },
+        low: { icon: "!", label: "Limited", title: "Limited availability", color: "#E8A030" },
+        booked: { icon: "x", label: "Booked", title: "Fully booked", color: "#E04545" },
+        unavailable: { icon: "-", label: "Unavailable", title: day.unavailable_reason || "Doctor unavailable", color: "#3A3E52" },
     };
     return map[day.availability] || map.unavailable;
+}
+
+function bookingTooltipHtml(dateValue, day, state) {
+    const displayDate = formatDisplayDate(`${dateValue}T${day?.earliest_slot || "09:00"}`, "date");
+    const doctorName = bookingCalendar?.doctor?.display_name || bookingCalendar?.doctor?.doctor_name || currentDoctorSelection();
+    const waitHint = day?.queue_load === "High" ? "~25 min" : day?.queue_load === "Moderate" ? "~15 min" : "~8 min";
+    return `
+        <span class="booking-tooltip">
+            <strong>${escapeHtml(displayDate)}</strong>
+            <span><i style="background:${state.color || "#4A9EE8"}"></i>${escapeHtml(doctorName || "DOCQ care team")}</span>
+            <span>${escapeHtml(state.title || state.label)}</span>
+            <span><i style="background:#3DB870"></i>${day?.available_slots || 0} slot${Number(day?.available_slots || 0) === 1 ? "" : "s"} - Wait ${waitHint}</span>
+            <span><i style="background:#4A9EE8"></i>${day?.booked_slots || 0} patients booked</span>
+        </span>
+    `;
 }
 
 function escapeHtml(value) {
@@ -796,6 +811,7 @@ function selectBookingDate(dateValue, options = {}) {
         renderBookingCalendar();
         renderBookingSlots(selectedBookingDate);
     }
+    updateBookingSubmitState();
 }
 
 function selectBookingTime(timeValue) {
@@ -804,6 +820,23 @@ function selectBookingTime(timeValue) {
         bookingTime.value = selectedBookingTime;
     }
     renderBookingSlots(selectedBookingDate);
+    updateBookingSubmitState();
+}
+
+function updateBookingSubmitState() {
+    if (!bookingSubmit) {
+        return;
+    }
+    if (selectedBookingDate && selectedBookingTime) {
+        bookingSubmit.disabled = false;
+        bookingSubmit.textContent = `Confirm - ${formatDisplayDate(`${selectedBookingDate}T${selectedBookingTime}`, "datetime")}`;
+    } else if (selectedBookingDate) {
+        bookingSubmit.disabled = true;
+        bookingSubmit.textContent = "Select a time slot to confirm";
+    } else {
+        bookingSubmit.disabled = true;
+        bookingSubmit.textContent = "Select a date and time to confirm";
+    }
 }
 
 function renderBookingCalendar() {
@@ -829,17 +862,18 @@ function renderBookingCalendar() {
         button.className = [
             "booking-calendar-day",
             `availability-${day?.availability || "unavailable"}`,
+            "cal-cell",
+            `s-${day?.availability === "available" ? "high" : day?.availability === "low" ? "limited" : day?.availability || "unavail"}`,
             isOutsideMonth ? "outside-month" : "",
             dateValue === today ? "today" : "",
-            dateValue === selectedBookingDate ? "selected" : "",
-            day?.preferred || preferredBookingDate === dateValue ? "preferred" : "",
-            day?.recommended ? "recommended" : "",
+            dateValue === selectedBookingDate ? "selected picked" : "",
+            day?.preferred || preferredBookingDate === dateValue ? "preferred s-preferred" : "",
+            day?.recommended ? "recommended s-recommended" : "",
         ].filter(Boolean).join(" ");
         button.title = `${dateValue}\n${state.title}\nAvailable Slots: ${day?.available_slots || 0}\nDoctors Available: ${day?.doctors_available || 0}\nEarliest Slot: ${day?.earliest_slot || "None"}\nQueue Load: ${day?.queue_load || "Unavailable"}`;
         button.innerHTML = `
             <span class="booking-day-number">${cellDate.getDate()}</span>
-            <span class="booking-day-state">${state.icon} ${state.label}</span>
-            <span class="booking-day-meta">${day?.available_slots || 0} slots</span>
+            ${day ? bookingTooltipHtml(dateValue, day, state) : ""}
         `;
         if (selectable) {
             button.addEventListener("click", () => selectBookingDate(dateValue, { autoSelectSlot: true }));
@@ -857,12 +891,14 @@ function renderBookingSlots(dateValue) {
     if (!day) {
         bookingSlotSummary.textContent = "No schedule available";
         bookingSlotGrid.innerHTML = '<p class="booking-empty-state">Choose an available calendar date.</p>';
+        updateBookingSubmitState();
         return;
     }
     const slots = Array.isArray(day.slots) ? day.slots : [];
     bookingSlotSummary.textContent = `${day.available_slots || 0} available - ${day.booked_slots || 0} booked - ${day.queue_load || "Queue"} load`;
     if (!slots.length) {
         bookingSlotGrid.innerHTML = '<p class="booking-empty-state">No slots published for this date.</p>';
+        updateBookingSubmitState();
         return;
     }
     slots.forEach((slot) => {
@@ -883,6 +919,7 @@ function renderBookingSlots(dateValue) {
         }
         bookingSlotGrid.appendChild(button);
     });
+    updateBookingSubmitState();
 }
 
 function showBookingModal() {
@@ -1484,7 +1521,7 @@ if (bookingForm) {
             bookingFeedback.className = "mt-3 rounded-card bg-[rgba(248,113,113,0.12)] px-3 py-3 text-sm text-[#F87171]";
         } finally {
             bookingSubmit.disabled = false;
-            bookingSubmit.textContent = "Book Appointment";
+            updateBookingSubmitState();
         }
     });
 }

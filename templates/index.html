@@ -505,7 +505,7 @@
                             <button type="button" id="booking-calendar-next" aria-label="Next month">&gt;</button>
                         </div>
                         <div class="booking-calendar-weekdays">
-                            <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+                            <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
                         </div>
                         <div id="booking-calendar-grid" class="booking-calendar-grid"></div>
                     </div>
@@ -525,7 +525,7 @@
                         </div>
                         <div id="booking-slot-grid" class="booking-slot-grid"></div>
                     </div>
-                    <button id="booking-submit" type="submit" class="inline-flex h-12 w-full items-center justify-center rounded-action bg-docq-accent text-sm font-medium text-white">Book Appointment</button>
+                    <button id="booking-submit" type="submit" class="confirm-btn inline-flex h-12 w-full items-center justify-center rounded-action bg-docq-accent text-sm font-medium text-white">Select a date and time to confirm</button>
                 </section>
             </form>
             <p id="booking-feedback" class="mt-3 hidden rounded-card px-3 py-3 text-sm"></p>
@@ -597,6 +597,6 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='docq.js', v='20260605-csrf-refresh') }}"></script>
+    <script src="{{ url_for('static', filename='docq.js', v='20260605-compact-datepicker') }}"></script>
 </body>
 </html>
