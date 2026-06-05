@@ -205,8 +205,8 @@ def build_specialty_confidence_map(primary_specialty: str, extracted_symptoms: l
     return [{"specialty": specialty, "confidence": round(min(score, 99.0), 1)} for specialty, score in ranked]
 
 
-def specialty_from_symptoms(extracted_symptoms: list[str], fallback: str = "General") -> str:
-    classification = classify_department("", extracted_symptoms=extracted_symptoms, fallback_specialty=fallback)
+def specialty_from_symptoms(extracted_symptoms: list[str], fallback: str = "General", patient_age: int | None = None) -> str:
+    classification = classify_department("", extracted_symptoms=extracted_symptoms, fallback_specialty=fallback, patient_age=patient_age)
     if classification["routing_source"] == "department_classification_engine":
         return str(classification["specialty"])
     for symptom in extracted_symptoms:
@@ -271,7 +271,7 @@ def analyze_symptoms(symptoms: str, patient_age: int | None = None, medical_hist
     if not category_model or not health_model:
         logger.warning("Models were not initialized; falling back to general routing.")
         confidence_pct = 0.0
-        department_classification = classify_department(cleaned, extracted_symptoms=extracted_symptoms, fallback_specialty="General")
+        department_classification = classify_department(cleaned, extracted_symptoms=extracted_symptoms, fallback_specialty="General", patient_age=patient_age)
         specialty = str(department_classification["specialty"])
         doctor_info = SPECIALTY_LABELS.get(specialty, DEFAULT_SPECIALTY)
         urgency = detect_urgency(cleaned, severity)
@@ -287,6 +287,11 @@ def analyze_symptoms(symptoms: str, patient_age: int | None = None, medical_hist
             "department_confidence": department_classification["confidence"],
             "department_routing_reason": department_classification["reason"],
             "department_routing_source": department_classification["routing_source"],
+            "department_matched_keywords": department_classification.get("matched_keywords", []),
+            "department_matched_rules": department_classification.get("matched_rules", []),
+            "department_confidence_score": department_classification.get("confidence_score", department_classification.get("confidence", 0)),
+            "selected_department": department_classification.get("selected_department", department_classification.get("department", "")),
+            "department_routing_audit": department_classification.get("audit", {}),
             "doctor_name": doctor_info["doctor"],
             "branch": doctor_info["branch"],
             "confidence": confidence_pct,
@@ -315,7 +320,7 @@ def analyze_symptoms(symptoms: str, patient_age: int | None = None, medical_hist
         predicted_specialty = "General"
         confidence = category_confidence
 
-    department_classification = classify_department(cleaned, extracted_symptoms=extracted_symptoms, fallback_specialty=normalize_specialty(str(predicted_specialty)))
+    department_classification = classify_department(cleaned, extracted_symptoms=extracted_symptoms, fallback_specialty=normalize_specialty(str(predicted_specialty)), patient_age=patient_age)
     specialty = str(department_classification["specialty"])
     doctor_info = SPECIALTY_LABELS.get(specialty, DEFAULT_SPECIALTY)
     urgency = detect_urgency(cleaned, severity)
@@ -337,6 +342,11 @@ def analyze_symptoms(symptoms: str, patient_age: int | None = None, medical_hist
         "department_confidence": department_classification["confidence"],
         "department_routing_reason": department_classification["reason"],
         "department_routing_source": department_classification["routing_source"],
+        "department_matched_keywords": department_classification.get("matched_keywords", []),
+        "department_matched_rules": department_classification.get("matched_rules", []),
+        "department_confidence_score": department_classification.get("confidence_score", department_classification.get("confidence", 0)),
+        "selected_department": department_classification.get("selected_department", department_classification.get("department", "")),
+        "department_routing_audit": department_classification.get("audit", {}),
         "doctor_name": doctor_info["doctor"],
         "branch": doctor_info["branch"],
         "confidence": confidence_pct,

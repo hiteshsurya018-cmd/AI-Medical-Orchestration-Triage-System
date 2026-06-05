@@ -3,6 +3,12 @@ from __future__ import annotations
 BRANCHES = ["Mysore Central", "Bangalore North"]
 
 SPECIALTY_LABELS = {
+    "Emergency": {
+        "doctor": "DOCQ Emergency",
+        "department": "Emergency Department",
+        "slot_note": "Emergency symptoms should use immediate care pathways rather than routine appointment booking.",
+        "branch": "Mysore Central",
+    },
     "General": {
         "doctor": "DOCQ General",
         "department": "General Medicine",

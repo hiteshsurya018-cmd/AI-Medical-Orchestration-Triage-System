@@ -73,18 +73,47 @@ def test_orthopedic_trauma_routes_to_orthopedics_without_diagnosis(app):
 
 def test_department_classifier_routes_common_categories(app):
     cases = [
-        ("I have chest pain and sweating", "Cardiology", "Cardiology"),
-        ("My knee broke after a fall", "Orthopedics", "Orthopedics"),
-        ("Sudden facial droop and slurred speech", "Neurology", "Neurology"),
-        ("Child fever since yesterday", "Pediatrics", "Pediatrics"),
-        ("Breathing difficulty and cough", "Pulmonology", "Pulmonology"),
+        ("I have chest pain and sweating", 55, "Cardiology", "Cardiology"),
+        ("My knee broke after a fall", 34, "Orthopedics", "Orthopedics"),
+        ("Sudden facial droop and slurred speech", 70, "Emergency", "Emergency Department"),
+        ("Child fever since yesterday", 8, "Pediatrics", "Pediatrics"),
+        ("Chronic asthma and wheezing", 30, "Pulmonology", "Pulmonology"),
     ]
     with app.app_context():
-        for symptoms, specialty, department in cases:
-            result = analyze_symptoms(symptoms, patient_age=30, medical_history="")
+        for symptoms, patient_age, specialty, department in cases:
+            result = analyze_symptoms(symptoms, patient_age=patient_age, medical_history="")
             assert result["specialty"] == specialty
             assert result["department"] == department
-            assert result["department_routing_source"] == "department_classification_engine"
+            assert result["department_matched_keywords"]
+            assert result["department_matched_rules"]
+
+
+def test_department_classifier_acceptance_routes(app):
+    cases = [
+        ("Fever", 35, "General", "General Medicine"),
+        ("Fever", 8, "Pediatrics", "Pediatrics"),
+        ("Cold", 28, "General", "General Medicine"),
+        ("Broken Leg", 40, "Orthopedics", "Orthopedics"),
+        ("Chest Pain", 55, "Cardiology", "Cardiology"),
+        ("Skin Rash", 30, "Dermatology", "Dermatology"),
+        ("Unknown Symptoms", 25, "General", "General Medicine"),
+    ]
+    with app.app_context():
+        for symptoms, patient_age, specialty, department in cases:
+            result = analyze_symptoms(symptoms, patient_age=patient_age, medical_history="")
+            assert result["specialty"] == specialty
+            assert result["department"] == department
+            assert result["selected_department"] == department
+            assert result["department_confidence_score"] > 0
+            assert result["department_matched_rules"]
+
+
+def test_uncertain_symptoms_never_fallback_to_dermatology(app):
+    with app.app_context():
+        result = analyze_symptoms("unclear concern not sure what is happening", patient_age=25, medical_history="")
+    assert result["specialty"] == "General"
+    assert result["department"] == "General Medicine"
+    assert result["department_routing_source"] == "general_medicine_fallback"
 
 
 def test_create_and_cancel_appointment_flow(app):

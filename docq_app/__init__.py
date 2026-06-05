@@ -1131,7 +1131,12 @@ def create_app(test_config: dict | None = None) -> Flask:
         patient_email = str(request.args.get("patient_email", "")).strip()
         phone = str(request.args.get("phone", "")).strip()
         preferred_date = str(request.args.get("preferred_date", "")).strip()
-        classification = classify_department(symptoms, fallback_specialty=requested_specialty or "General")
+        raw_age = str(request.args.get("patient_age", "")).strip()
+        try:
+            patient_age = int(raw_age) if raw_age else None
+        except ValueError:
+            patient_age = None
+        classification = classify_department(symptoms, fallback_specialty=requested_specialty or "General", patient_age=patient_age)
         specialty = str(classification["specialty"])
         matches = recommend_doctor_matches(specialty, phone=phone, patient_email=patient_email)
         department_calendar = build_department_calendar(
