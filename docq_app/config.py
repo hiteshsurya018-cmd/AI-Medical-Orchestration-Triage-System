@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 
 from .production_config import load_runtime_environment
@@ -14,7 +15,12 @@ class Config:
         self.DATASET_PATH = Path(os.getenv("DOCQ_DATASET_PATH", str(self.BASE_DIR / "final.csv")))
         default_db_path = "/tmp/docq.db" if os.getenv("VERCEL") else str(self.BASE_DIR / "docq.db")
         self.DB_PATH = Path(os.getenv("DOCQ_DB_PATH", default_db_path))
-        self.MODEL_DIR = Path(os.getenv("DOCQ_MODEL_DIR", str(self.BASE_DIR / "models")))
+        temp_root = Path(tempfile.gettempdir())
+        default_model_dir = str(temp_root / "models") if os.getenv("VERCEL") else str(self.BASE_DIR / "models")
+        configured_model_dir = os.getenv("DOCQ_MODEL_DIR", default_model_dir)
+        if os.getenv("VERCEL") and (not configured_model_dir or not Path(configured_model_dir).is_absolute()):
+            configured_model_dir = str(temp_root / (configured_model_dir or "models"))
+        self.MODEL_DIR = Path(configured_model_dir)
         self.SECRET_KEY = runtime.secret_key
         self.JWT_SECRET = runtime.jwt_secret
         self.DEBUG = runtime.debug
