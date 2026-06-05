@@ -57,7 +57,23 @@ const profileModal = document.getElementById("profile-modal");
 const closeProfileModalButton = document.getElementById("close-profile-modal");
 const profileForm = document.getElementById("profile-form");
 const profileFeedback = document.getElementById("profile-feedback");
-const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+const csrfTokenMeta = document.querySelector('meta[name="csrf-token"]');
+
+function currentCsrfToken() {
+    return document.querySelector('input[name="_csrf_token"]')?.value || csrfTokenMeta?.content || "";
+}
+
+function updateCsrfToken(token) {
+    if (!token) {
+        return;
+    }
+    if (csrfTokenMeta) {
+        csrfTokenMeta.content = token;
+    }
+    document.querySelectorAll('input[name="_csrf_token"]').forEach((input) => {
+        input.value = token;
+    });
+}
 
 let latestIntake = null;
 let drawerVisible = false;
@@ -991,7 +1007,7 @@ async function requestSuggestedAppointment(date, label, time = "") {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "X-CSRF-Token": csrfToken || "",
+                "X-CSRF-Token": currentCsrfToken(),
             },
             body: JSON.stringify({
                 ...patient,
@@ -1044,7 +1060,7 @@ async function switchDoctorRecommendation(doctorName, options = {}) {
             specialty: latestIntake.specialty || bookingSpecialty?.value || "",
         });
         const response = await fetch(`/api/doctor-availability?${params.toString()}`, {
-            headers: { "X-CSRF-Token": csrfToken || "" },
+            headers: { "X-CSRF-Token": currentCsrfToken() },
         });
         const data = await response.json();
         if (!response.ok) {
@@ -1090,7 +1106,7 @@ async function refreshBookingAvailability(options = {}) {
             specialty: latestIntake.specialty || bookingSpecialty?.value || "",
         });
         const response = await fetch(`/api/doctor-availability?${params.toString()}`, {
-            headers: { "X-CSRF-Token": csrfToken || "" },
+            headers: { "X-CSRF-Token": currentCsrfToken() },
         });
         const data = await response.json();
         if (!response.ok) {
@@ -1187,13 +1203,14 @@ async function submitPatientSignup(event) {
         submit.disabled = true;
         const response = await fetch("/api/auth/patient-signup", {
             method: "POST",
-            headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken || "" },
+            headers: { "Content-Type": "application/json", "X-CSRF-Token": currentCsrfToken() },
             body: JSON.stringify(payload),
         });
         const data = await response.json();
         if (!response.ok) {
             throw new Error(data.error || "Signup failed.");
         }
+        updateCsrfToken(data.csrf_token);
         workspaceSession.dataset.isPatientAuthenticated = "true";
         const profile = data.workspace_context?.profile;
         updateWorkspaceProfile(profile, data.workspace_context?.communication_preferences || {});
@@ -1226,7 +1243,7 @@ async function submitProfilePreferences(event) {
     try {
         const response = await fetch("/api/patient/profile", {
             method: "POST",
-            headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken || "" },
+            headers: { "Content-Type": "application/json", "X-CSRF-Token": currentCsrfToken() },
             body: JSON.stringify({
                 patient_name: document.getElementById("profile-patient-name")?.value.trim(),
                 patient_age: document.getElementById("profile-patient-age")?.value.trim(),
@@ -1260,7 +1277,7 @@ async function runIntake(message) {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "X-CSRF-Token": csrfToken || "",
+                "X-CSRF-Token": currentCsrfToken(),
             },
             body: JSON.stringify({ message }),
         });
@@ -1438,7 +1455,7 @@ if (bookingForm) {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                "X-CSRF-Token": csrfToken || "",
+                "X-CSRF-Token": currentCsrfToken(),
             },
             body: JSON.stringify(payload),
         });

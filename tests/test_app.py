@@ -315,6 +315,43 @@ def test_booking_reserves_selected_appointment_time(app):
     assert appointment["slot_time"] == "14:30"
 
 
+def test_patient_signup_returns_rotated_csrf_for_booking(client):
+    client.get("/")
+    with client.session_transaction() as session:
+        csrf = session["_csrf_token"]
+    signup = client.post(
+        "/api/auth/patient-signup",
+        json={
+            "name": "Csrf Booking",
+            "email": "csrf-booking@example.com",
+            "password": "securepass1",
+            "phone": "9333333333",
+            "patient_age": 35,
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert signup.status_code == 201
+    rotated_csrf = signup.get_json()["csrf_token"]
+    assert rotated_csrf
+    assert rotated_csrf != csrf
+    booking = client.post(
+        "/api/public-booking",
+        json={
+            "patient_name": "Csrf Booking",
+            "patient_email": "csrf-booking@example.com",
+            "phone": "9333333333",
+            "patient_age": 35,
+            "symptoms": "Fever",
+            "specialty": "General",
+            "doctor_name": "DOCQ General",
+            "appointment_date": (get_current_date() + dt.timedelta(days=1)).isoformat(),
+            "appointment_time": "09:30",
+        },
+        headers={"X-CSRF-Token": rotated_csrf},
+    )
+    assert booking.status_code == 201
+
+
 def test_doctor_route_requires_doctor_role(client):
     csrf = extract_csrf(client, "/login")
     client.post("/login", data={"email": "desk@docq.local", "password": "desk123", "_csrf_token": csrf}, follow_redirects=False)

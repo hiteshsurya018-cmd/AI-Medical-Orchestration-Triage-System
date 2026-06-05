@@ -594,6 +594,7 @@ def create_app(test_config: dict | None = None) -> Flask:
                 "resume_ready": True,
                 "workspace_context": _serialize_workspace_context(build_patient_workspace_context(email)),
                 "resume_context": resume_context,
+                "csrf_token": session.get("_csrf_token", ""),
                 "whatsapp_onboarding": _build_whatsapp_sandbox_onboarding(),
             }
         ), 201
