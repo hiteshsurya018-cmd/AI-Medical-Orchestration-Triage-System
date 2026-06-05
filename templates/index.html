@@ -491,13 +491,11 @@
                         <div class="booking-preference-actions">
                             <button type="button" data-preferred-date="today">Today</button>
                             <button type="button" data-preferred-date="tomorrow">Tomorrow</button>
-                            <label>
-                                <span>Choose Date</span>
-                                <input id="booking-preferred-date" type="date">
-                            </label>
+                            <button id="booking-prefer-selected-date" type="button">Use Selected Date</button>
                         </div>
                     </div>
                     <div id="booking-recommendation" class="booking-recommendation hidden"></div>
+                    <button id="booking-earliest-button" type="button" class="booking-earliest-button">⚡ Book Earliest Available</button>
                     <div class="booking-calendar-shell">
                         <div class="booking-calendar-toolbar">
                             <button type="button" id="booking-calendar-prev" aria-label="Previous month">&lt;</button>
@@ -508,6 +506,7 @@
                             <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
                         </div>
                         <div id="booking-calendar-grid" class="booking-calendar-grid"></div>
+                        <div id="booking-date-details" class="booking-date-details hidden"></div>
                     </div>
                     <div class="booking-calendar-legend">
                         <span><i class="legend-dot available"></i>High</span>
@@ -518,7 +517,7 @@
                         <span><i class="legend-ring preferred"></i>Preferred</span>
                         <span><i class="legend-ring recommended"></i>Recommended</span>
                     </div>
-                    <div>
+                    <div id="booking-slot-panel" class="booking-slot-panel hidden">
                         <div class="mb-2 flex items-center justify-between">
                             <h3 class="text-base font-medium text-docq-text">Available Slots</h3>
                             <span id="booking-slot-summary" class="text-xs text-docq-muted">Select a date</span>
@@ -597,6 +596,6 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='docq.js', v='20260605-compact-datepicker') }}"></script>
+    <script src="{{ url_for('static', filename='docq.js', v='20260605-calendar-replacement') }}"></script>
 </body>
 </html>

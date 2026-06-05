@@ -14,14 +14,17 @@ const closeBookingModalButton = document.getElementById("close-booking-modal");
 const bookingForm = document.getElementById("booking-form");
 const bookingDate = document.getElementById("booking-date");
 const bookingTime = document.getElementById("booking-time");
-const bookingPreferredDate = document.getElementById("booking-preferred-date");
+const bookingPreferSelectedDate = document.getElementById("booking-prefer-selected-date");
 const bookingCalendarGrid = document.getElementById("booking-calendar-grid");
 const bookingCalendarTitle = document.getElementById("booking-calendar-title");
 const bookingCalendarPrev = document.getElementById("booking-calendar-prev");
 const bookingCalendarNext = document.getElementById("booking-calendar-next");
+const bookingDateDetails = document.getElementById("booking-date-details");
+const bookingSlotPanel = document.getElementById("booking-slot-panel");
 const bookingSlotGrid = document.getElementById("booking-slot-grid");
 const bookingSlotSummary = document.getElementById("booking-slot-summary");
 const bookingRecommendation = document.getElementById("booking-recommendation");
+const bookingEarliestButton = document.getElementById("booking-earliest-button");
 const bookingAge = document.getElementById("booking-age");
 const bookingSpecialty = document.getElementById("booking-specialty");
 const bookingDoctorName = document.getElementById("booking-doctor-name");
@@ -206,7 +209,7 @@ function availabilityCopy(day) {
 function bookingTooltipHtml(dateValue, day, state) {
     const displayDate = formatDisplayDate(`${dateValue}T${day?.earliest_slot || "09:00"}`, "date");
     const doctorName = bookingCalendar?.doctor?.display_name || bookingCalendar?.doctor?.doctor_name || currentDoctorSelection();
-    const waitHint = day?.queue_load === "High" ? "~25 min" : day?.queue_load === "Moderate" ? "~15 min" : "~8 min";
+    const waitHint = expectedWaitLabel(day);
     return `
         <span class="booking-tooltip">
             <strong>${escapeHtml(displayDate)}</strong>
@@ -216,6 +219,27 @@ function bookingTooltipHtml(dateValue, day, state) {
             <span><i style="background:#4A9EE8"></i>${day?.booked_slots || 0} patients booked</span>
         </span>
     `;
+}
+
+function expectedWaitLabel(day) {
+    if (!day) {
+        return "~8 min";
+    }
+    return day.queue_load === "High" ? "~25 min" : day.queue_load === "Moderate" ? "~15 min" : "~8 min";
+}
+
+function dateAvailabilityLabel(day) {
+    if (!day) {
+        return "";
+    }
+    const availableSlots = Number(day.available_slots || 0);
+    if (availableSlots > 0) {
+        return `${availableSlots} slot${availableSlots === 1 ? "" : "s"}`;
+    }
+    if (day.availability === "booked") {
+        return "Full";
+    }
+    return "Closed";
 }
 
 function escapeHtml(value) {
@@ -739,9 +763,7 @@ function setBookingDates(dates, urgent = false) {
     }
     const first = dates.find((item) => Number(item.open_count || 0) > 0) || dates[0];
     if (first && urgent) {
-        selectBookingDate(first.date, { autoSelectSlot: true });
-    } else if (!selectedBookingDate && first) {
-        selectBookingDate(first.date, { autoSelectSlot: false });
+        preferredBookingDate = first.date;
     }
 }
 
@@ -750,43 +772,68 @@ function setBookingCalendar(calendar, options = {}) {
     if (!bookingCalendar) {
         renderBookingCalendar();
         renderBookingSlots("");
+        renderBookingRecommendation(null);
+        updateEarliestButtonState();
+        updatePreferenceButtonState();
         return;
     }
     const firstAvailable = bookingCalendar.first_available || null;
     const initialDate = options.preferredDate || selectedBookingDate || firstAvailable?.date || bookingCalendar.days?.[0]?.date || clientTodayYmd();
     preferredBookingDate = options.preferredDate || preferredBookingDate || "";
     bookingVisibleMonth = monthStart(initialDate);
-    if (firstAvailable && !selectedBookingDate) {
-        selectBookingDate(firstAvailable.date, { autoSelectSlot: true, render: false });
+    if (selectedBookingDate) {
+        const selectedDay = calendarDayByDate(selectedBookingDate);
+        if (!selectedDay || Number(selectedDay.available_slots || 0) <= 0) {
+            selectBookingDate("", { render: false });
+        }
     }
     renderBookingCalendar();
-    renderBookingSlots(selectedBookingDate || firstAvailable?.date || "");
+    renderBookingSlots(selectedBookingDate || "");
     renderBookingRecommendation(latestIntake?.recommended_appointment || {
         doctor_name: bookingCalendar.doctor?.doctor_name || currentDoctorSelection(),
         slot: firstAvailable ? `${firstAvailable.date} ${firstAvailable.time}` : "",
         reason: "Earliest available doctor slot based on live calendar capacity.",
         availability_score: latestIntake?.doctor_matches?.find((item) => item.doctor_name === currentDoctorSelection())?.availability_score || 0,
     });
+    updateEarliestButtonState();
+    updatePreferenceButtonState();
 }
 
 function renderBookingRecommendation(recommendation = null) {
     if (!bookingRecommendation) {
         return;
     }
-    if (!recommendation?.slot) {
+    const rawSlot = String(recommendation?.slot || "");
+    const slotMatch = rawSlot.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/);
+    const fallback = bookingCalendar?.first_available || null;
+    const datePart = slotMatch?.[1] || fallback?.date || "";
+    const timePart = slotMatch?.[2] || fallback?.time || "";
+    if (!datePart || !timePart) {
         bookingRecommendation.classList.add("hidden");
         bookingRecommendation.innerHTML = "";
+        updateEarliestButtonState();
         return;
     }
+    const doctorName = recommendation?.doctor_name || fallback?.doctor_name || currentDoctorSelection();
+    const specialty = bookingCalendar?.specialty || bookingSpecialty?.value || latestIntake?.specialty || "Clinical care";
+    const day = calendarDayByDate(datePart);
+    const availableToday = datePart === clientTodayYmd() ? "Available Today" : formatDisplayDate(`${datePart}T${timePart || "09:00"}`, "date");
     bookingRecommendation.classList.remove("hidden");
     bookingRecommendation.innerHTML = `
         <div>
-            <p>Recommended Appointment</p>
-            <strong>${escapeHtml(recommendation.doctor_name || currentDoctorSelection())}</strong>
-            <span>${escapeHtml(recommendation.slot)}</span>
+            <p>DOCQ Recommendation</p>
+            <strong>${escapeHtml(doctorName)}</strong>
+            <span>${escapeHtml(specialty)}</span>
+            <span>${escapeHtml(availableToday)}</span>
         </div>
-        <small>${escapeHtml(recommendation.reason || "Best fit based on availability and queue load.")}</small>
+        <div class="booking-recommendation-meta">
+            <span>Next Available: <strong>${escapeHtml(timePart || "Open slot")}</strong></span>
+            <span>Expected Wait: <strong>${escapeHtml(expectedWaitLabel(day))}</strong></span>
+            <small>${escapeHtml(recommendation?.reason || "Earliest suitable appointment from the live DOCQ calendar.")}</small>
+            <button type="button" class="booking-recommendation-action" data-book-recommended="true">Book Recommended</button>
+        </div>
     `;
+    updateEarliestButtonState();
 }
 
 function selectBookingDate(dateValue, options = {}) {
@@ -810,7 +857,9 @@ function selectBookingDate(dateValue, options = {}) {
     if (options.render !== false) {
         renderBookingCalendar();
         renderBookingSlots(selectedBookingDate);
+        renderBookingDateDetails(selectedBookingDate);
     }
+    updatePreferenceButtonState();
     updateBookingSubmitState();
 }
 
@@ -836,6 +885,68 @@ function updateBookingSubmitState() {
     } else {
         bookingSubmit.disabled = true;
         bookingSubmit.textContent = "Select a date and time to confirm";
+    }
+}
+
+function updatePreferenceButtonState() {
+    if (!bookingPreferSelectedDate) {
+        return;
+    }
+    bookingPreferSelectedDate.disabled = !selectedBookingDate;
+    bookingPreferSelectedDate.textContent = selectedBookingDate
+        ? `Prefer ${formatDisplayDate(`${selectedBookingDate}T09:00`, "date")}`
+        : "Use Selected Date";
+}
+
+function updateEarliestButtonState() {
+    if (!bookingEarliestButton) {
+        return;
+    }
+    const firstAvailable = bookingCalendar?.first_available || null;
+    bookingEarliestButton.disabled = !firstAvailable;
+    bookingEarliestButton.textContent = firstAvailable
+        ? `⚡ Book Earliest Available - ${formatDisplayDate(`${firstAvailable.date}T${firstAvailable.time}`, "datetime")}`
+        : "No earliest slot available";
+}
+
+function renderBookingDateDetails(dateValue) {
+    if (!bookingDateDetails) {
+        return;
+    }
+    const day = calendarDayByDate(dateValue);
+    if (!day) {
+        bookingDateDetails.classList.add("hidden");
+        bookingDateDetails.innerHTML = "";
+        return;
+    }
+    const state = availabilityCopy(day);
+    const doctorName = bookingCalendar?.doctor?.display_name || bookingCalendar?.doctor?.doctor_name || currentDoctorSelection() || "DOCQ care team";
+    bookingDateDetails.classList.remove("hidden");
+    bookingDateDetails.innerHTML = `
+        <strong>${escapeHtml(formatDisplayDate(`${dateValue}T${day.earliest_slot || "09:00"}`, "date"))}</strong>
+        <span>${escapeHtml(doctorName)}</span>
+        <span>${escapeHtml(state.title)} - ${escapeHtml(dateAvailabilityLabel(day))}</span>
+        <span>Queue Load: ${escapeHtml(day.queue_load || "Low")} - Expected Wait: ${escapeHtml(expectedWaitLabel(day))}</span>
+    `;
+}
+
+async function setPreferredBookingDate(dateValue) {
+    preferredBookingDate = dateValue || "";
+    await refreshBookingAvailability({ preferredDate: preferredBookingDate });
+    updatePreferenceButtonState();
+}
+
+function bookEarliestAvailable({ submit = true } = {}) {
+    const firstAvailable = bookingCalendar?.first_available || null;
+    if (!firstAvailable) {
+        return;
+    }
+    selectBookingDate(firstAvailable.date, { autoSelectSlot: true });
+    if (submit && bookingForm) {
+        if (typeof bookingForm.reportValidity === "function" && !bookingForm.reportValidity()) {
+            return;
+        }
+        bookingForm.requestSubmit();
     }
 }
 
@@ -873,6 +984,8 @@ function renderBookingCalendar() {
         button.title = `${dateValue}\n${state.title}\nAvailable Slots: ${day?.available_slots || 0}\nDoctors Available: ${day?.doctors_available || 0}\nEarliest Slot: ${day?.earliest_slot || "None"}\nQueue Load: ${day?.queue_load || "Unavailable"}`;
         button.innerHTML = `
             <span class="booking-day-number">${cellDate.getDate()}</span>
+            <span class="booking-day-state">${day ? escapeHtml(state.icon) : ""} ${day ? escapeHtml(state.label) : ""}</span>
+            <span class="booking-day-meta">${escapeHtml(dateAvailabilityLabel(day))}</span>
             ${day ? bookingTooltipHtml(dateValue, day, state) : ""}
         `;
         if (selectable) {
@@ -889,15 +1002,19 @@ function renderBookingSlots(dateValue) {
     bookingSlotGrid.innerHTML = "";
     const day = calendarDayByDate(dateValue);
     if (!day) {
-        bookingSlotSummary.textContent = "No schedule available";
-        bookingSlotGrid.innerHTML = '<p class="booking-empty-state">Choose an available calendar date.</p>';
+        bookingSlotPanel?.classList.add("hidden");
+        bookingSlotSummary.textContent = "Select a date";
+        bookingSlotGrid.innerHTML = "";
+        renderBookingDateDetails("");
         updateBookingSubmitState();
         return;
     }
+    bookingSlotPanel?.classList.remove("hidden");
     const slots = Array.isArray(day.slots) ? day.slots : [];
     bookingSlotSummary.textContent = `${day.available_slots || 0} available - ${day.booked_slots || 0} booked - ${day.queue_load || "Queue"} load`;
     if (!slots.length) {
         bookingSlotGrid.innerHTML = '<p class="booking-empty-state">No slots published for this date.</p>';
+        renderBookingDateDetails(dateValue);
         updateBookingSubmitState();
         return;
     }
@@ -919,13 +1036,13 @@ function renderBookingSlots(dateValue) {
         }
         bookingSlotGrid.appendChild(button);
     });
+    renderBookingDateDetails(dateValue);
     updateBookingSubmitState();
 }
 
 function showBookingModal() {
-    if (bookingPreferredDate) {
-        bookingPreferredDate.min = clientTodayYmd();
-    }
+    updateEarliestButtonState();
+    updatePreferenceButtonState();
     bookingModal?.classList.remove("hidden");
     bookingModal?.classList.add("flex");
 }
@@ -1392,16 +1509,19 @@ document.querySelectorAll("[data-preferred-date]").forEach((button) => {
     button.addEventListener("click", async () => {
         const today = localDateFromYmd(clientTodayYmd());
         const value = button.dataset.preferredDate === "tomorrow" ? ymdFromDate(addDays(today, 1)) : clientTodayYmd();
-        preferredBookingDate = value;
-        if (bookingPreferredDate) {
-            bookingPreferredDate.value = value;
-        }
-        await refreshBookingAvailability({ preferredDate: value });
+        await setPreferredBookingDate(value);
     });
 });
-bookingPreferredDate?.addEventListener("change", async () => {
-    preferredBookingDate = bookingPreferredDate.value || "";
-    await refreshBookingAvailability({ preferredDate: preferredBookingDate });
+bookingPreferSelectedDate?.addEventListener("click", async () => {
+    if (selectedBookingDate) {
+        await setPreferredBookingDate(selectedBookingDate);
+    }
+});
+bookingEarliestButton?.addEventListener("click", () => bookEarliestAvailable({ submit: true }));
+bookingRecommendation?.addEventListener("click", (event) => {
+    if (event.target instanceof HTMLElement && event.target.matches("[data-book-recommended]")) {
+        bookEarliestAvailable({ submit: true });
+    }
 });
 openSignupModalButton?.addEventListener("click", showSignupModal);
 closeSignupModalButton?.addEventListener("click", hideSignupModal);
