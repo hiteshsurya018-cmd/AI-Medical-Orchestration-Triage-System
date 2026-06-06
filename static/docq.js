@@ -187,6 +187,10 @@ function firstCalendarCell(date) {
     return addDays(first, -first.getDay());
 }
 
+function daysInMonth(date) {
+    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+}
+
 function calendarDayByDate(dateValue) {
     const days = bookingCalendar?.days || [];
     return days.find((day) => day.date === dateValue) || null;
@@ -211,13 +215,13 @@ function bookingTooltipHtml(dateValue, day, state) {
     const doctorName = bookingCalendar?.doctor?.display_name || bookingCalendar?.doctor?.doctor_name || currentDoctorSelection();
     const waitHint = expectedWaitLabel(day);
     return `
-        <span class="booking-tooltip">
-            <strong>${escapeHtml(displayDate)}</strong>
-            <span><i style="background:${state.color || "#4A9EE8"}"></i>${escapeHtml(doctorName || "DOCQ care team")}</span>
-            <span>${escapeHtml(state.title || state.label)}</span>
-            <span><i style="background:#3DB870"></i>${day?.available_slots || 0} slot${Number(day?.available_slots || 0) === 1 ? "" : "s"} - Wait ${waitHint}</span>
-            <span><i style="background:#4A9EE8"></i>${day?.booked_slots || 0} patients booked</span>
-        </span>
+        <div class="tt">
+            <div class="tt-title">${escapeHtml(displayDate)}</div>
+            <div class="tt-row"><div class="tt-dot" style="background:${state.color || "#4A9EE8"};"></div>${escapeHtml(doctorName || "DOCQ care team")}</div>
+            <div class="tt-row" style="margin-top:2px;color:#9096B0;">${escapeHtml(state.title || state.label)}</div>
+            <div class="tt-row" style="margin-top:4px;"><div class="tt-dot" style="background:#3DB870;"></div>${day?.available_slots || 0} slot${Number(day?.available_slots || 0) === 1 ? "" : "s"} - Wait ${waitHint}</div>
+            <div class="tt-row"><div class="tt-dot" style="background:#4A9EE8;"></div>${day?.booked_slots || 0} patients today</div>
+        </div>
     `;
 }
 
@@ -817,21 +821,21 @@ function renderBookingRecommendation(recommendation = null) {
     const doctorName = recommendation?.doctor_name || fallback?.doctor_name || currentDoctorSelection();
     const specialty = bookingCalendar?.specialty || bookingSpecialty?.value || latestIntake?.specialty || "Clinical care";
     const day = calendarDayByDate(datePart);
-    const availableToday = datePart === clientTodayYmd() ? "Available Today" : formatDisplayDate(`${datePart}T${timePart || "09:00"}`, "date");
+    const availabilityLabel = availabilityCopy(day).title || "Live availability";
+    const branch = bookingCalendar?.doctor?.branch || "DOCQ care network";
     bookingRecommendation.classList.remove("hidden");
     bookingRecommendation.innerHTML = `
-        <div>
-            <p>DOCQ Recommendation</p>
-            <strong>${escapeHtml(doctorName)}</strong>
-            <span>${escapeHtml(specialty)}</span>
-            <span>${escapeHtml(availableToday)}</span>
+        <div class="rec-label">DOCQ RECOMMENDATION</div>
+        <div class="rec-doc">${escapeHtml(doctorName)}</div>
+        <div class="rec-row">
+            <span class="rec-pill">${escapeHtml(availabilityLabel)}</span>
+            <span class="rec-sub">${escapeHtml(specialty)} - ${escapeHtml(branch)}</span>
         </div>
-        <div class="booking-recommendation-meta">
-            <span>Next Available: <strong>${escapeHtml(timePart || "Open slot")}</strong></span>
-            <span>Expected Wait: <strong>${escapeHtml(expectedWaitLabel(day))}</strong></span>
-            <small>${escapeHtml(recommendation?.reason || "Earliest suitable appointment from the live DOCQ calendar.")}</small>
-            <button type="button" class="booking-recommendation-action" data-book-recommended="true">Book Recommended</button>
+        <div class="rec-meta">
+            <span>Next available: ${escapeHtml(formatDisplayDate(`${datePart}T${timePart}`, "datetime"))}</span>
+            <span>Wait ${escapeHtml(expectedWaitLabel(day))}</span>
         </div>
+        <button type="button" class="booking-recommendation-action" data-book-recommended="true">Book Recommended</button>
     `;
     updateEarliestButtonState();
 }
@@ -956,15 +960,20 @@ function renderBookingCalendar() {
     }
     const visibleMonth = bookingVisibleMonth || monthStart(selectedBookingDate || clientTodayYmd());
     bookingCalendarTitle.textContent = monthLabel(visibleMonth);
-    bookingCalendarGrid.innerHTML = "";
-    const start = firstCalendarCell(visibleMonth);
+    const weekdays = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+    bookingCalendarGrid.innerHTML = weekdays.map((dayLabel) => `<div class="dow">${dayLabel}</div>`).join("");
+    const firstOfMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), 1);
     const today = clientTodayYmd();
-    for (let index = 0; index < 42; index += 1) {
-        const cellDate = addDays(start, index);
+    for (let index = 0; index < firstOfMonth.getDay(); index += 1) {
+        const emptyCell = document.createElement("div");
+        emptyCell.className = "cal-cell empty";
+        bookingCalendarGrid.appendChild(emptyCell);
+    }
+    for (let dayOfMonth = 1; dayOfMonth <= daysInMonth(visibleMonth); dayOfMonth += 1) {
+        const cellDate = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), dayOfMonth);
         const dateValue = ymdFromDate(cellDate);
         const day = calendarDayByDate(dateValue);
         const state = availabilityCopy(day);
-        const isOutsideMonth = cellDate.getMonth() !== visibleMonth.getMonth();
         const isPast = dateValue < today || day?.is_past;
         const selectable = Boolean(day && Number(day.available_slots || 0) > 0 && !isPast);
         const button = document.createElement("button");
@@ -975,7 +984,6 @@ function renderBookingCalendar() {
             `availability-${day?.availability || "unavailable"}`,
             "cal-cell",
             `s-${day?.availability === "available" ? "high" : day?.availability === "low" ? "limited" : day?.availability || "unavail"}`,
-            isOutsideMonth ? "outside-month" : "",
             dateValue === today ? "today" : "",
             dateValue === selectedBookingDate ? "selected picked" : "",
             day?.preferred || preferredBookingDate === dateValue ? "preferred s-preferred" : "",
@@ -983,13 +991,11 @@ function renderBookingCalendar() {
         ].filter(Boolean).join(" ");
         button.title = `${dateValue}\n${state.title}\nAvailable Slots: ${day?.available_slots || 0}\nDoctors Available: ${day?.doctors_available || 0}\nEarliest Slot: ${day?.earliest_slot || "None"}\nQueue Load: ${day?.queue_load || "Unavailable"}`;
         button.innerHTML = `
-            <span class="booking-day-number">${cellDate.getDate()}</span>
-            <span class="booking-day-state">${day ? escapeHtml(state.icon) : ""} ${day ? escapeHtml(state.label) : ""}</span>
-            <span class="booking-day-meta">${escapeHtml(dateAvailabilityLabel(day))}</span>
+            ${cellDate.getDate()}
             ${day ? bookingTooltipHtml(dateValue, day, state) : ""}
         `;
         if (selectable) {
-            button.addEventListener("click", () => selectBookingDate(dateValue, { autoSelectSlot: true }));
+            button.addEventListener("click", () => selectBookingDate(dateValue, { autoSelectSlot: false }));
         }
         bookingCalendarGrid.appendChild(button);
     }
@@ -1011,29 +1017,25 @@ function renderBookingSlots(dateValue) {
     }
     bookingSlotPanel?.classList.remove("hidden");
     const slots = Array.isArray(day.slots) ? day.slots : [];
-    bookingSlotSummary.textContent = `${day.available_slots || 0} available - ${day.booked_slots || 0} booked - ${day.queue_load || "Queue"} load`;
-    if (!slots.length) {
-        bookingSlotGrid.innerHTML = '<p class="booking-empty-state">No slots published for this date.</p>';
+    const availableSlots = slots.filter((slot) => slot.available);
+    bookingSlotSummary.textContent = `Available times - ${formatDisplayDate(`${dateValue}T${day.earliest_slot || "09:00"}`, "date")}`;
+    if (!availableSlots.length) {
+        bookingSlotPanel?.classList.add("hidden");
+        bookingSlotGrid.innerHTML = "";
         renderBookingDateDetails(dateValue);
         updateBookingSubmitState();
         return;
     }
-    slots.forEach((slot) => {
-        const available = Boolean(slot.available);
+    availableSlots.forEach((slot) => {
         const selected = selectedBookingTime === slot.time;
         const button = document.createElement("button");
         button.type = "button";
-        button.disabled = !available;
-        button.className = `booking-slot-card ${available ? "available" : "unavailable"} ${selected ? "selected" : ""}`;
+        button.className = `booking-slot-card slot available ${selected ? "selected picked" : ""}`;
         button.title = `${slot.time}\n${slot.doctor_name || currentDoctorSelection()}\n${slot.department || bookingSpecialty?.value || ""}\nRoom: ${slot.room || "Care suite"}\nStatus: ${slot.label || slot.status}`;
         button.innerHTML = `
-            <strong>${escapeHtml(slot.time)}</strong>
-            <span>${available ? (selected ? "Recommended" : "Available") : escapeHtml(slot.label || "Unavailable")}</span>
-            <small>${escapeHtml(slot.room || "Care suite")}</small>
+            ${escapeHtml(slot.time)}
         `;
-        if (available) {
-            button.addEventListener("click", () => selectBookingTime(slot.time));
-        }
+        button.addEventListener("click", () => selectBookingTime(slot.time));
         bookingSlotGrid.appendChild(button);
     });
     renderBookingDateDetails(dateValue);
