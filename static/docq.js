@@ -15,6 +15,9 @@ const bookingForm = document.getElementById("booking-form");
 const bookingDate = document.getElementById("booking-date");
 const bookingTime = document.getElementById("booking-time");
 const bookingPreferSelectedDate = document.getElementById("booking-prefer-selected-date");
+const bookingBubbleSpecialty = document.getElementById("booking-bubble-specialty");
+const bookingBubbleSymptoms = document.getElementById("booking-bubble-symptoms");
+const bookingPatientSession = document.getElementById("booking-patient-session");
 const bookingCalendarGrid = document.getElementById("booking-calendar-grid");
 const bookingCalendarTitle = document.getElementById("booking-calendar-title");
 const bookingCalendarPrev = document.getElementById("booking-calendar-prev");
@@ -85,6 +88,19 @@ let bookingVisibleMonth = null;
 let selectedBookingDate = "";
 let selectedBookingTime = "";
 let preferredBookingDate = "";
+const DAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const STATE_CFG = {
+    high: { bg: "#0D2218", tc: "#3DB870", label: "High availability", icon: "●" },
+    moderate: { bg: "#0D1A2E", tc: "#4A9EE8", label: "Moderate availability", icon: "●" },
+    limited: { bg: "#2A1D08", tc: "#E8A030", label: "Limited availability", icon: "●" },
+    booked: { bg: "#2A0D0D", tc: "#E04545", label: "Fully booked", icon: "●" },
+    unavail: { bg: "#14151A", tc: "#3A3E52", label: "Unavailable", icon: "●" },
+    preferred: { bg: "#1A1527", tc: "#9B8FE8", label: "Your preferred date", icon: "●" },
+    recommended: { bg: "#0D2218", tc: "#3DB870", label: "DOCQ recommended", icon: "●" },
+};
+let CAL_DATA = {};
+let pickedDate = null;
+let pickedSlot = null;
 
 const workflowStageOrder = ["memory", "intake", "followup", "triage", "decision", "scheduling", "completed"];
 const workflowStageMeta = {
@@ -1042,9 +1058,333 @@ function renderBookingSlots(dateValue) {
     updateBookingSubmitState();
 }
 
+function calendarStateForDay(day) {
+    if (!day) {
+        return "unavail";
+    }
+    if (day.recommended) {
+        return "recommended";
+    }
+    if (day.preferred || preferredBookingDate === day.date) {
+        return "preferred";
+    }
+    const map = {
+        available: "high",
+        moderate: "moderate",
+        low: "limited",
+        booked: "booked",
+        unavailable: "unavail",
+    };
+    return map[day.availability] || "unavail";
+}
+
+function rebuildCalData() {
+    CAL_DATA = {};
+    const visibleMonth = bookingVisibleMonth || monthStart(selectedBookingDate || bookingCalendar?.first_available?.date || clientTodayYmd());
+    const doctorName = bookingCalendar?.doctor?.display_name || bookingCalendar?.doctor?.doctor_name || currentDoctorSelection() || "DOCQ Family Care";
+    (bookingCalendar?.days || []).forEach((day) => {
+        const date = localDateFromYmd(day.date);
+        if (!date || date.getFullYear() !== visibleMonth.getFullYear() || date.getMonth() !== visibleMonth.getMonth()) {
+            return;
+        }
+        const slots = Array.isArray(day.slots) ? day.slots.filter((slot) => slot.available).map((slot) => slot.time) : [];
+        CAL_DATA[date.getDate()] = {
+            date: day.date,
+            state: calendarStateForDay(day),
+            doc: doctorName,
+            reason: day.recommended
+                ? "Earliest availability - DOCQ recommended"
+                : (day.unavailable_reason || availabilityCopy(day).title || "Live scheduling availability"),
+            slots,
+            patients: Number(day.booked_slots || 0),
+            wait: expectedWaitLabel(day),
+        };
+    });
+}
+
+function currentConfirmButton() {
+    return document.getElementById("conf-btn") || bookingSubmit;
+}
+
+function syncPickedDateFromSelectedDate() {
+    const selected = localDateFromYmd(selectedBookingDate);
+    pickedDate = selected ? selected.getDate() : null;
+    pickedSlot = selectedBookingTime || null;
+}
+
+function setBookingCalendar(calendar, options = {}) {
+    bookingCalendar = calendar || null;
+    if (!bookingCalendar) {
+        CAL_DATA = {};
+        renderBookingRecommendation(null);
+        buildPicker();
+        return;
+    }
+    const firstAvailable = bookingCalendar.first_available || null;
+    const initialDate = options.preferredDate || selectedBookingDate || firstAvailable?.date || bookingCalendar.days?.[0]?.date || clientTodayYmd();
+    preferredBookingDate = options.preferredDate || preferredBookingDate || "";
+    bookingVisibleMonth = monthStart(initialDate);
+    if (selectedBookingDate) {
+        const selectedDay = calendarDayByDate(selectedBookingDate);
+        if (!selectedDay || Number(selectedDay.available_slots || 0) <= 0) {
+            selectedBookingDate = "";
+            selectedBookingTime = "";
+        }
+    }
+    rebuildCalData();
+    renderBookingRecommendation(latestIntake?.recommended_appointment || {
+        doctor_name: bookingCalendar.doctor?.doctor_name || currentDoctorSelection(),
+        slot: firstAvailable ? `${firstAvailable.date} ${firstAvailable.time}` : "",
+    });
+    buildPicker();
+}
+
+function renderBookingRecommendation(recommendation = null) {
+    if (!bookingRecommendation) {
+        return;
+    }
+    const fallback = bookingCalendar?.first_available || null;
+    const rawSlot = String(recommendation?.slot || "");
+    const slotMatch = rawSlot.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/);
+    const datePart = slotMatch?.[1] || fallback?.date || "";
+    const doctorName = recommendation?.doctor_name || fallback?.doctor_name || currentDoctorSelection() || "DOCQ Family Care";
+    const specialty = bookingCalendar?.specialty || bookingSpecialty?.value || latestIntake?.specialty || "General Medicine";
+    const day = calendarDayByDate(datePart);
+    const availabilityLabel = availabilityCopy(day).title || "High availability";
+    const branch = bookingCalendar?.doctor?.branch || "Bangalore North";
+    if (bookingBubbleSpecialty) {
+        bookingBubbleSpecialty.textContent = specialty;
+    }
+    if (bookingBubbleSymptoms) {
+        bookingBubbleSymptoms.textContent = bookingSymptoms?.value?.trim() || latestIntake?.symptoms || "fatigue, mild fever, and sore throat";
+    }
+    if (bookingPatientSession) {
+        bookingPatientSession.textContent = `${document.getElementById("patient-name")?.value?.trim() || getWorkspacePatient()?.patient_name || "Hitesh Surya"} · Patient Session`;
+    }
+    bookingRecommendation.className = "rec-card";
+    bookingRecommendation.innerHTML = `
+        <div class="rec-label">DOCQ RECOMMENDATION</div>
+        <div class="rec-doc">${escapeHtml(doctorName)}</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+            <span style="font-size:11px;background:#0D2218;color:#3DB870;padding:2px 8px;border-radius:20px;">${escapeHtml(availabilityLabel)}</span>
+            <span style="font-size:11px;color:#5A6080;">${escapeHtml(specialty)} · ${escapeHtml(branch)}</span>
+        </div>
+        <div style="margin-top:10px;" id="picker-root"></div>
+    `;
+}
+
+function buildPicker() {
+    const root = document.getElementById("picker-root");
+    if (!root) {
+        return;
+    }
+    const visibleMonth = bookingVisibleMonth || monthStart(selectedBookingDate || bookingCalendar?.first_available?.date || clientTodayYmd());
+    root.innerHTML = `
+        <div class="picker-wrap">
+            <div class="picker-header">
+                <span class="picker-month">${escapeHtml(monthLabel(visibleMonth))}</span>
+                <div class="picker-nav">
+                    <button type="button" class="nav-btn" aria-label="Previous month">&lsaquo;</button>
+                    <button type="button" class="nav-btn" aria-label="Next month">&rsaquo;</button>
+                </div>
+            </div>
+            <div class="cal-grid" id="cal-grid"></div>
+            <div class="legend" id="legend"></div>
+            <div id="slots-wrap"></div>
+            <button type="button" class="confirm-btn" id="conf-btn" disabled>Select a date and time to confirm</button>
+        </div>`;
+    const navButtons = root.querySelectorAll(".nav-btn");
+    navButtons[0]?.addEventListener("click", async () => {
+        const current = bookingVisibleMonth || visibleMonth;
+        bookingVisibleMonth = new Date(current.getFullYear(), current.getMonth() - 1, 1);
+        await refreshBookingAvailability({ startDate: ymdFromDate(bookingVisibleMonth), silent: true });
+    });
+    navButtons[1]?.addEventListener("click", async () => {
+        const current = bookingVisibleMonth || visibleMonth;
+        bookingVisibleMonth = new Date(current.getFullYear(), current.getMonth() + 1, 1);
+        await refreshBookingAvailability({ startDate: ymdFromDate(bookingVisibleMonth), silent: true });
+    });
+    document.getElementById("conf-btn")?.addEventListener("click", confirmBooking);
+    syncPickedDateFromSelectedDate();
+    renderCal();
+    renderLegend();
+    renderSlots();
+    updateConfirm();
+}
+
+function renderCal() {
+    const grid = document.getElementById("cal-grid");
+    if (!grid) {
+        return;
+    }
+    const visibleMonth = bookingVisibleMonth || monthStart(selectedBookingDate || bookingCalendar?.first_available?.date || clientTodayYmd());
+    grid.innerHTML = DAYS.map((dayLabel) => `<div class="dow">${dayLabel}</div>`).join("");
+    const startDay = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), 1).getDay();
+    for (let index = 0; index < startDay; index += 1) {
+        grid.innerHTML += '<div class="cal-cell empty"></div>';
+    }
+    for (let dayNumber = 1; dayNumber <= daysInMonth(visibleMonth); dayNumber += 1) {
+        const data = CAL_DATA[dayNumber] || { state: "unavail", reason: "", slots: [] };
+        const state = data.state;
+        const canClick = state !== "unavail" && state !== "booked" && Array.isArray(data.slots) && data.slots.length > 0;
+        const isRec = state === "recommended";
+        const isPref = state === "preferred";
+        const isPicked = pickedDate === dayNumber;
+        const cell = document.createElement("div");
+        cell.className = `cal-cell s-${state}${isPicked ? " picked" : ""}${isRec ? " s-recommended" : ""}${isPref ? " s-preferred" : ""}`;
+        cell.innerHTML = `${dayNumber}${buildTooltip(dayNumber, data)}`;
+        if (canClick) {
+            cell.onclick = () => selectDate(dayNumber);
+        }
+        grid.appendChild(cell);
+    }
+}
+
+function buildTooltip(dayNumber, data) {
+    const visibleMonth = bookingVisibleMonth || monthStart(selectedBookingDate || bookingCalendar?.first_available?.date || clientTodayYmd());
+    const state = data.state;
+    const cfg = STATE_CFG[state] || STATE_CFG.unavail;
+    let rows = "";
+    if (data.doc) {
+        rows += `<div class="tt-row"><div class="tt-dot" style="background:${cfg.tc};"></div>${escapeHtml(data.doc)}</div>`;
+    }
+    rows += `<div class="tt-row" style="margin-top:2px;color:#9096B0;">${escapeHtml(data.reason || cfg.label)}</div>`;
+    if (data.slots && data.slots.length) {
+        rows += `<div class="tt-row" style="margin-top:4px;"><div class="tt-dot" style="background:#3DB870;"></div>${data.slots.length} slot${data.slots.length > 1 ? "s" : ""} · Wait ${escapeHtml(data.wait || "~8 min")}</div>`;
+    }
+    if (data.patients != null) {
+        rows += `<div class="tt-row"><div class="tt-dot" style="background:#4A9EE8;"></div>${data.patients} patients today</div>`;
+    }
+    return `<div class="tt"><div class="tt-title">${escapeHtml(monthLabel(visibleMonth).split(" ")[0])} ${dayNumber}, ${visibleMonth.getFullYear()}</div>${rows}</div>`;
+}
+
+function renderLegend() {
+    const leg = document.getElementById("legend");
+    if (!leg) {
+        return;
+    }
+    const items = [
+        ["#3DB870", "High availability", "#0D2218"],
+        ["#4A9EE8", "Moderate", "#0D1A2E"],
+        ["#E8A030", "Limited", "#2A1D08"],
+        ["#E04545", "Fully booked", "#2A0D0D"],
+        ["#3A3E52", "Unavailable", "#14151A"],
+        ["#9B8FE8", "Your preferred", "#1A1527"],
+        ["#4A9EE8", "DOCQ pick (●)", "transparent"],
+    ];
+    leg.innerHTML = items.map(([tc, label, bg]) => `<div class="leg-item"><div class="leg-dot" style="background:${bg};border:1px solid ${tc};"></div>${label}</div>`).join("");
+}
+
+function selectDate(dayNumber) {
+    const data = CAL_DATA[dayNumber];
+    if (!data?.date) {
+        return;
+    }
+    pickedDate = dayNumber;
+    pickedSlot = null;
+    selectedBookingDate = data.date;
+    selectedBookingTime = "";
+    if (bookingDate) {
+        bookingDate.value = selectedBookingDate;
+    }
+    if (bookingTime) {
+        bookingTime.value = "";
+    }
+    renderCal();
+    renderSlots();
+    updateConfirm();
+}
+
+function renderSlots() {
+    const wrap = document.getElementById("slots-wrap");
+    if (!wrap) {
+        return;
+    }
+    const data = CAL_DATA[pickedDate];
+    if (!data || !data.slots.length) {
+        wrap.innerHTML = "";
+        return;
+    }
+    const visibleMonth = bookingVisibleMonth || monthStart(data.date);
+    wrap.innerHTML = `<div class="slots-area">
+        <div class="slots-label">Available times · ${escapeHtml(monthLabel(visibleMonth).split(" ")[0])} ${pickedDate}</div>
+        <div class="slots-grid" id="slots-grid"></div>
+    </div>`;
+    const grid = document.getElementById("slots-grid");
+    data.slots.forEach((slot) => {
+        const element = document.createElement("div");
+        element.className = `slot${pickedSlot === slot ? " picked" : ""}`;
+        element.textContent = slot;
+        element.onclick = () => {
+            pickedSlot = slot;
+            selectedBookingTime = slot;
+            if (bookingTime) {
+                bookingTime.value = slot;
+            }
+            renderSlots();
+            updateConfirm();
+        };
+        grid.appendChild(element);
+    });
+}
+
+function updateConfirm() {
+    const button = currentConfirmButton();
+    if (!button) {
+        return;
+    }
+    if (pickedDate && pickedSlot) {
+        button.disabled = false;
+        const visibleMonth = bookingVisibleMonth || monthStart(selectedBookingDate);
+        button.textContent = `Confirm — ${monthLabel(visibleMonth).split(" ")[0]} ${pickedDate} at ${pickedSlot}`;
+    } else if (pickedDate) {
+        button.disabled = true;
+        button.textContent = "Select a time slot to confirm";
+    } else {
+        button.disabled = true;
+        button.textContent = "Select a date and time to confirm";
+    }
+}
+
+function updateBookingSubmitState() {
+    updateConfirm();
+}
+
+function confirmBooking() {
+    if (selectedBookingDate && selectedBookingTime && bookingForm) {
+        bookingForm.requestSubmit();
+    }
+}
+
+function appendBookingConfirmationBubble(appointment = {}, payload = {}) {
+    const chat = document.getElementById("chat");
+    if (!chat) {
+        return;
+    }
+    const visibleMonth = bookingVisibleMonth || monthStart(selectedBookingDate);
+    const doctorName = appointment.doctor_name || payload.doctor_name || currentDoctorSelection() || "DOCQ Family Care";
+    const specialty = payload.specialty || bookingSpecialty?.value || latestIntake?.specialty || "General Medicine";
+    const email = payload.patient_email || getWorkspacePatient()?.patient_email || "hiteshsurya018@gmail.com";
+    const wrap = document.createElement("div");
+    wrap.className = "msg-docq";
+    wrap.innerHTML = `<div class="avatar">DQ</div><div class="bubble-docq" style="border-color:rgba(61,184,112,0.3);">
+        <div style="color:#3DB870;font-weight:500;margin-bottom:6px;">Appointment confirmed</div>
+        <div style="font-size:12px;color:#6A8080;line-height:1.7;">
+          ${escapeHtml(doctorName)} · ${escapeHtml(specialty)}<br>
+          ${escapeHtml(monthLabel(visibleMonth).split(" ")[0])} ${pickedDate}, ${visibleMonth.getFullYear()} at ${escapeHtml(pickedSlot || selectedBookingTime)}<br>
+          A confirmation has been sent to ${escapeHtml(email)}
+        </div>
+      </div>`;
+    chat.appendChild(wrap);
+    const pickerRoot = document.getElementById("picker-root");
+    if (pickerRoot) {
+        pickerRoot.innerHTML = "";
+    }
+    chat.scrollTop = chat.scrollHeight;
+}
+
 function showBookingModal() {
-    updateEarliestButtonState();
-    updatePreferenceButtonState();
+    buildPicker();
     bookingModal?.classList.remove("hidden");
     bookingModal?.classList.add("flex");
 }
@@ -1608,8 +1948,11 @@ if (bookingForm) {
             vitals: latestIntake?.vitals || latestIntake?.known_context?.vitals_evaluation?.vitals || {},
         };
         try {
-            bookingSubmit.disabled = true;
-            bookingSubmit.textContent = "Submitting...";
+            const submitButton = currentConfirmButton();
+            if (submitButton) {
+                submitButton.disabled = true;
+                submitButton.textContent = "Submitting...";
+            }
             const response = await fetch("/api/public-booking", {
                 method: "POST",
                 headers: {
@@ -1634,15 +1977,14 @@ if (bookingForm) {
             bookingFeedback.textContent = data.message;
             bookingFeedback.className = "mt-3 rounded-card bg-[rgba(52,211,153,0.12)] px-3 py-3 text-sm text-[#34D399]";
             console.info("[DOCQ BOOKING CONFIRMED]", { appointment_id: data.appointment.id, workflow_id: data.appointment.workflow_id || "" });
+            appendBookingConfirmationBubble(data.appointment, payload);
             addBubble(`Appointment request captured. ${data.message}`, "bot", `Ref ${data.appointment.id}`);
             maybeLaunchWhatsAppSandboxOnboarding(data.whatsapp_onboarding, bookingFeedback, payload.phone);
-            hideBookingModal();
         } catch (error) {
             console.error("[DOCQ BOOKING ERROR]", error);
             bookingFeedback.textContent = error.message || "Booking failed.";
             bookingFeedback.className = "mt-3 rounded-card bg-[rgba(248,113,113,0.12)] px-3 py-3 text-sm text-[#F87171]";
         } finally {
-            bookingSubmit.disabled = false;
             updateBookingSubmitState();
         }
     });
