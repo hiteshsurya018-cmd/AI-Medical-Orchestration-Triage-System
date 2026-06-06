@@ -1473,6 +1473,59 @@ function showBookingError(message) {
     }
 }
 
+function clearBookingError() {
+    document.getElementById("booking-error")?.remove();
+}
+
+function removeBookedSlotFromPicker(date, time) {
+    if (!date || !time) {
+        return;
+    }
+    const day = calData[date];
+    if (day) {
+        day.slots = (day.slots || []).filter((slot) => slot !== time);
+        day.patients = Number(day.patients || 0) + 1;
+        if (!day.slots.length) {
+            day.state = "booked";
+            day.reason = "Fully booked - no slots left";
+            day.wait = "N/A";
+        }
+    }
+    const calendarDay = calendarDayByDate(date);
+    if (calendarDay) {
+        const slot = (calendarDay.slots || []).find((item) => item.time === time);
+        if (slot) {
+            slot.available = false;
+            slot.status = "booked";
+            slot.label = "Booked";
+        }
+        calendarDay.available_slots = Math.max(0, Number(calendarDay.available_slots || 0) - 1);
+        calendarDay.booked_slots = Number(calendarDay.booked_slots || 0) + 1;
+        calendarDay.availability = calendarDay.available_slots > 0 ? calendarDay.availability : "booked";
+    }
+}
+
+function showDropInBookingConfirmation(appointment = {}, payload = {}) {
+    const root = document.getElementById("picker-root");
+    if (!root) {
+        return;
+    }
+    const date = payload.appointment_date || selectedBookingDate || appointment.appointment_date || "";
+    const time = payload.appointment_time || selectedBookingTime || appointment.slot_time || "";
+    const doctorName = appointment.doctor_name || payload.doctor_name || currentDoctorSelection() || "DOCQ care team";
+    const specialty = payload.specialty || bookingSpecialty?.value || latestIntake?.specialty || "Clinical care";
+    const email = payload.patient_email || getWorkspacePatient()?.patient_email || "";
+    const displayDate = date && time ? formatDisplayDate(`${date}T${time}`, "datetime") : `${date} ${time}`.trim();
+    root.innerHTML = `<div class="picker-wrap">
+        <div style="color:#3DB870;font-weight:500;margin-bottom:6px;">Appointment confirmed</div>
+        <div style="font-size:12px;color:#7B8299;line-height:1.7;">
+            ${escapeHtml(doctorName)} - ${escapeHtml(specialty)}<br>
+            ${escapeHtml(displayDate)}<br>
+            ${email ? `A confirmation has been sent to ${escapeHtml(email)}` : "DOCQ has updated the appointment timeline."}
+        </div>
+    </div>`;
+}
+
 async function fetchAvailability(year, month) {
     const doctorName = currentDoctorSelection() || latestIntake?.doctor_name;
     if (!doctorName) {
@@ -2298,6 +2351,7 @@ if (bookingForm) {
             vitals: latestIntake?.vitals || latestIntake?.known_context?.vitals_evaluation?.vitals || {},
         };
         try {
+            clearBookingError();
             const submitButton = currentConfirmButton();
             if (submitButton) {
                 submitButton.disabled = true;
@@ -2327,11 +2381,20 @@ if (bookingForm) {
             bookingFeedback.textContent = data.message;
             bookingFeedback.className = "mt-3 rounded-card bg-[rgba(52,211,153,0.12)] px-3 py-3 text-sm text-[#34D399]";
             console.info("[DOCQ BOOKING CONFIRMED]", { appointment_id: data.appointment.id, workflow_id: data.appointment.workflow_id || "" });
+            removeBookedSlotFromPicker(payload.appointment_date, payload.appointment_time);
+            showDropInBookingConfirmation(data.appointment, payload);
+            pickedDate = null;
+            pickedSlot = null;
+            setHiddenFields(null, null);
             appendBookingConfirmationBubble(data.appointment, payload);
             addBubble(`Appointment request captured. ${data.message}`, "bot", `Ref ${data.appointment.id}`);
             maybeLaunchWhatsAppSandboxOnboarding(data.whatsapp_onboarding, bookingFeedback, payload.phone);
         } catch (error) {
             console.error("[DOCQ BOOKING ERROR]", error);
+            if (viewYear && viewMonth >= 0) {
+                await fetchAvailability(viewYear, viewMonth);
+            }
+            showBookingError(error.message || "Booking failed.");
             bookingFeedback.textContent = error.message || "Booking failed.";
             bookingFeedback.className = "mt-3 rounded-card bg-[rgba(248,113,113,0.12)] px-3 py-3 text-sm text-[#F87171]";
         } finally {
