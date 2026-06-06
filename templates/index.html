@@ -481,38 +481,16 @@
                     </div>
                 </section>
                 <section class="booking-prototype-area">
-                    <input id="booking-date" type="hidden" name="appointment_date" required>
-                    <input id="booking-time" type="hidden" name="appointment_time" required>
-                    <div class="app">
-                        <div class="topbar">
-                            <span class="logo">D O C Q</span>
-                            <div class="patient-badge"><div class="dot-live"></div><span id="booking-patient-session">Hitesh Surya · Patient Session</span></div>
-                            <div style="display:flex;gap:8px;">
-                                <span style="font-size:11px;color:#5A6080;background:#161A27;border:0.5px solid rgba(255,255,255,0.08);padding:4px 10px;border-radius:6px;cursor:pointer;">Docs</span>
-                                <span style="font-size:11px;color:#5A6080;background:#161A27;border:0.5px solid rgba(255,255,255,0.08);padding:4px 10px;border-radius:6px;cursor:pointer;">Sign out</span>
-                            </div>
+                    <input id="appointment_date" type="hidden" name="appointment_date" required>
+                    <input id="appointment_time" type="hidden" name="appointment_time" required>
+                    <div id="booking-recommendation" class="rec-card">
+                        <div class="rec-label">DOCQ RECOMMENDATION</div>
+                        <div class="rec-doc">DOCQ Family Care</div>
+                        <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+                            <span style="font-size:11px;background:#0D2218;color:#3DB870;padding:2px 8px;border-radius:20px;">High availability</span>
+                            <span class="rec-sub">General Medicine - Bangalore North</span>
                         </div>
-                        <div class="chat-area" id="chat">
-                            <div class="msg-docq">
-                                <div class="avatar">DQ</div>
-                                <div class="bubble-docq">
-                                    Based on your reported symptoms — <span id="booking-bubble-symptoms" style="color:#9B8FE8;">fatigue, mild fever, and sore throat</span> — I've triaged this as <span id="booking-bubble-specialty" style="color:#3DB870;font-weight:500;">General Medicine</span>. Here's your recommended doctor and booking calendar.
-                                    <div id="booking-recommendation" class="rec-card">
-                                        <div class="rec-label">DOCQ RECOMMENDATION</div>
-                                        <div class="rec-doc">DOCQ Family Care</div>
-                                        <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
-                                            <span style="font-size:11px;background:#0D2218;color:#3DB870;padding:2px 8px;border-radius:20px;">High availability</span>
-                                            <span style="font-size:11px;color:#5A6080;">General Medicine · Bangalore North</span>
-                                        </div>
-                                        <div style="margin-top:10px;" id="picker-root"></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="input-bar">
-                            <textarea class="chat-input" placeholder="Describe any new symptoms or continue the conversation…"></textarea>
-                            <button class="send-btn" aria-label="Send" type="button">›</button>
-                        </div>
+                        <div id="picker-root" style="margin-top:10px;"></div>
                     </div>
                 </section>
             </form>
@@ -585,6 +563,6 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='docq.js', v='20260606-ditto-datepicker') }}"></script>
+    <script src="{{ url_for('static', filename='docq.js', v='20260606-dropin-datepicker') }}"></script>
 </body>
 </html>

@@ -12,8 +12,8 @@ const openBookingModalButton = document.getElementById("open-booking-modal");
 const bookingModal = document.getElementById("booking-modal");
 const closeBookingModalButton = document.getElementById("close-booking-modal");
 const bookingForm = document.getElementById("booking-form");
-const bookingDate = document.getElementById("booking-date");
-const bookingTime = document.getElementById("booking-time");
+const bookingDate = document.getElementById("appointment_date") || document.getElementById("booking-date");
+const bookingTime = document.getElementById("appointment_time") || document.getElementById("booking-time");
 const bookingPreferSelectedDate = document.getElementById("booking-prefer-selected-date");
 const bookingBubbleSpecialty = document.getElementById("booking-bubble-specialty");
 const bookingBubbleSymptoms = document.getElementById("booking-bubble-symptoms");
@@ -89,6 +89,7 @@ let selectedBookingDate = "";
 let selectedBookingTime = "";
 let preferredBookingDate = "";
 const DAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const STATE_CFG = {
     high: { bg: "#0D2218", tc: "#3DB870", label: "High availability", icon: "●" },
     moderate: { bg: "#0D1A2E", tc: "#4A9EE8", label: "Moderate availability", icon: "●" },
@@ -99,6 +100,9 @@ const STATE_CFG = {
     recommended: { bg: "#0D2218", tc: "#3DB870", label: "DOCQ recommended", icon: "●" },
 };
 let CAL_DATA = {};
+let calData = {};
+let viewYear = 0;
+let viewMonth = 0;
 let pickedDate = null;
 let pickedSlot = null;
 
@@ -1381,6 +1385,352 @@ function appendBookingConfirmationBubble(appointment = {}, payload = {}) {
         pickerRoot.innerHTML = "";
     }
     chat.scrollTop = chat.scrollHeight;
+}
+
+function pad(n) {
+    return String(n).padStart(2, "0");
+}
+
+function isoDate(year, month, day) {
+    return `${year}-${pad(month + 1)}-${pad(day)}`;
+}
+
+function setHiddenFields(date, time) {
+    if (bookingDate) {
+        bookingDate.value = date || "";
+    }
+    if (bookingTime) {
+        bookingTime.value = time || "";
+    }
+    selectedBookingDate = date || "";
+    selectedBookingTime = time || "";
+}
+
+function dropInStateForDay(day) {
+    if (!day) {
+        return "unavail";
+    }
+    if (day.recommended) {
+        return "recommended";
+    }
+    if (day.preferred || preferredBookingDate === day.date) {
+        return "preferred";
+    }
+    const map = {
+        available: "high",
+        moderate: "moderate",
+        low: "limited",
+        booked: "booked",
+        unavailable: "unavail",
+    };
+    return map[day.availability] || "unavail";
+}
+
+function calendarToDropInAvailability(calendar) {
+    const availability = {};
+    const doctorName = calendar?.doctor?.display_name || calendar?.doctor?.doctor_name || currentDoctorSelection() || "DOCQ Family Care";
+    (calendar?.days || []).forEach((day) => {
+        const slots = Array.isArray(day.slots) ? day.slots.filter((slot) => slot.available).map((slot) => slot.time) : [];
+        availability[day.date] = {
+            state: dropInStateForDay(day),
+            doc: doctorName,
+            reason: day.recommended
+                ? "Earliest availability - DOCQ recommended"
+                : (day.unavailable_reason || availabilityCopy(day).title || "No schedule"),
+            slots,
+            patients: Number(day.booked_slots || 0),
+            wait: expectedWaitLabel(day),
+        };
+    });
+    return availability;
+}
+
+function showLoading() {
+    const root = document.getElementById("picker-root");
+    if (root) {
+        root.innerHTML = '<div class="picker-loading">Loading availability...</div>';
+    }
+}
+
+function showError(message) {
+    const root = document.getElementById("picker-root");
+    if (root) {
+        root.innerHTML = `<div class="picker-error">Could not load availability: ${escapeHtml(message)}</div>`;
+    }
+}
+
+function showBookingError(message) {
+    let element = document.getElementById("booking-error");
+    const button = document.getElementById("conf-btn");
+    if (!element && button) {
+        element = document.createElement("div");
+        element.id = "booking-error";
+        element.style.cssText = "font-size:12px;color:#E04545;margin-top:8px;text-align:center;";
+        button.after(element);
+    }
+    if (element) {
+        element.textContent = message;
+    }
+}
+
+async function fetchAvailability(year, month) {
+    const doctorName = currentDoctorSelection() || latestIntake?.doctor_name;
+    if (!doctorName) {
+        renderPicker();
+        return;
+    }
+    showLoading();
+    try {
+        const startDate = isoDate(year, month, 1);
+        const params = new URLSearchParams({
+            doctor_name: doctorName,
+            preferred_date: preferredBookingDate || "",
+            start_date: startDate,
+            specialty: latestIntake?.specialty || bookingSpecialty?.value || "",
+        });
+        const response = await fetch(`/api/doctor-availability?${params.toString()}`, {
+            headers: {
+                "X-CSRF-Token": currentCsrfToken(),
+                "Accept": "application/json",
+            },
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || `HTTP ${response.status}`);
+        }
+        bookingCalendar = data.calendar || null;
+        latestIntake = latestIntake ? {
+            ...latestIntake,
+            available_dates: data.available_dates || [],
+            calendar: data.calendar || null,
+            next_slot: data.recommendation ? `${data.recommendation.date} ${data.recommendation.time}` : latestIntake.next_slot,
+        } : latestIntake;
+        calData = calendarToDropInAvailability(bookingCalendar);
+        renderBookingRecommendation({
+            doctor_name: data.doctor_name || doctorName,
+            slot: data.recommendation ? `${data.recommendation.date} ${data.recommendation.time}` : "",
+        });
+        renderPicker();
+    } catch (error) {
+        showError(error.message || "Availability refresh failed.");
+    }
+}
+
+function setBookingCalendar(calendar, options = {}) {
+    bookingCalendar = calendar || null;
+    const firstAvailable = bookingCalendar?.first_available || null;
+    const initialDate = options.preferredDate || selectedBookingDate || firstAvailable?.date || bookingCalendar?.days?.[0]?.date || clientTodayYmd();
+    const initial = localDateFromYmd(initialDate) || new Date();
+    preferredBookingDate = options.preferredDate || preferredBookingDate || "";
+    bookingVisibleMonth = new Date(initial.getFullYear(), initial.getMonth(), 1);
+    viewYear = bookingVisibleMonth.getFullYear();
+    viewMonth = bookingVisibleMonth.getMonth();
+    pickedDate = selectedBookingDate || null;
+    pickedSlot = selectedBookingTime || null;
+    calData = calendarToDropInAvailability(bookingCalendar);
+    renderBookingRecommendation(latestIntake?.recommended_appointment || {
+        doctor_name: bookingCalendar?.doctor?.doctor_name || currentDoctorSelection(),
+        slot: firstAvailable ? `${firstAvailable.date} ${firstAvailable.time}` : "",
+    });
+    renderPicker();
+}
+
+function buildPicker() {
+    if (!viewYear) {
+        const now = new Date();
+        viewYear = now.getFullYear();
+        viewMonth = now.getMonth();
+    }
+    renderPicker();
+}
+
+function renderPicker() {
+    const root = document.getElementById("picker-root");
+    if (!root) {
+        return;
+    }
+    root.innerHTML = `
+      <div class="picker-wrap">
+        <div class="picker-header">
+          <span class="picker-month" id="picker-month-label"></span>
+          <div class="picker-nav">
+            <button type="button" class="nav-btn" id="nav-prev" aria-label="Previous month">&lsaquo;</button>
+            <button type="button" class="nav-btn" id="nav-next" aria-label="Next month">&rsaquo;</button>
+          </div>
+        </div>
+        <div class="cal-grid" id="cal-grid"></div>
+        <div class="legend" id="legend"></div>
+        <div id="slots-wrap"></div>
+        <button type="button" class="confirm-btn" id="conf-btn" disabled>Select a date and time to confirm</button>
+      </div>`;
+    document.getElementById("picker-month-label").textContent = `${MONTH_NAMES[viewMonth]} ${viewYear}`;
+    document.getElementById("nav-prev").onclick = () => navigateMonth(-1);
+    document.getElementById("nav-next").onclick = () => navigateMonth(1);
+    document.getElementById("conf-btn").addEventListener("click", confirmBooking);
+    renderCal();
+    renderLegend();
+    if (pickedDate) {
+        renderSlots();
+    }
+    updateConfirm();
+}
+
+function renderCal() {
+    const grid = document.getElementById("cal-grid");
+    if (!grid) {
+        return;
+    }
+    const daysInCurrentMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const startDay = new Date(viewYear, viewMonth, 1).getDay();
+    grid.innerHTML = DAYS.map((dayLabel) => `<div class="dow">${dayLabel}</div>`).join("");
+    for (let index = 0; index < startDay; index += 1) {
+        grid.innerHTML += '<div class="cal-cell empty"></div>';
+    }
+    for (let day = 1; day <= daysInCurrentMonth; day += 1) {
+        const iso = isoDate(viewYear, viewMonth, day);
+        const data = calData[iso] || { state: "unavail", reason: "No schedule", slots: [] };
+        const state = data.state;
+        const canClick = state !== "unavail" && state !== "booked";
+        const isRec = state === "recommended";
+        const isPref = state === "preferred";
+        const isPicked = pickedDate === iso;
+        const classes = [
+            "cal-cell",
+            `s-${state}`,
+            isPicked ? "picked" : "",
+            isRec ? "s-recommended" : "",
+            isPref ? "s-preferred" : "",
+        ].filter(Boolean).join(" ");
+        const cell = document.createElement("div");
+        cell.className = classes;
+        cell.innerHTML = `${day}${buildTooltip(iso, day, data)}`;
+        if (canClick) {
+            cell.onclick = () => selectDate(iso);
+        }
+        grid.appendChild(cell);
+    }
+}
+
+function buildTooltip(iso, day, data) {
+    const cfg = STATE_CFG[data.state] || STATE_CFG.unavail;
+    let rows = "";
+    if (data.doc) {
+        rows += `<div class="tt-row"><div class="tt-dot" style="background:${cfg.tc};"></div>${escapeHtml(data.doc)}</div>`;
+    }
+    rows += `<div class="tt-row" style="margin-top:2px;color:#9096B0;">${escapeHtml(data.reason || cfg.label)}</div>`;
+    if (data.slots?.length) {
+        rows += `<div class="tt-row" style="margin-top:4px;"><div class="tt-dot" style="background:#3DB870;"></div>${data.slots.length} slot${data.slots.length > 1 ? "s" : ""} · Wait ${escapeHtml(data.wait || "~8 min")}</div>`;
+    }
+    if (data.patients != null) {
+        rows += `<div class="tt-row"><div class="tt-dot" style="background:#4A9EE8;"></div>${data.patients} patients today</div>`;
+    }
+    return `<div class="tt"><div class="tt-title">${MONTH_NAMES[viewMonth]} ${day}, ${viewYear}</div>${rows}</div>`;
+}
+
+function renderLegend() {
+    const legend = document.getElementById("legend");
+    if (!legend) {
+        return;
+    }
+    const items = [
+        ["#3DB870", "High availability", "#0D2218"],
+        ["#4A9EE8", "Moderate", "#0D1A2E"],
+        ["#E8A030", "Limited", "#2A1D08"],
+        ["#E04545", "Fully booked", "#2A0D0D"],
+        ["#3A3E52", "Unavailable", "#14151A"],
+        ["#9B8FE8", "Your preferred", "#1A1527"],
+        ["#4A9EE8", "DOCQ pick (●)", "transparent"],
+    ];
+    legend.innerHTML = items.map(([tc, label, bg]) => `<div class="leg-item"><div class="leg-dot" style="background:${bg};border:1px solid ${tc};"></div>${label}</div>`).join("");
+}
+
+function selectDate(iso) {
+    pickedDate = iso;
+    pickedSlot = null;
+    setHiddenFields(iso, null);
+    renderCal();
+    renderSlots();
+    updateConfirm();
+}
+
+function renderSlots() {
+    const wrap = document.getElementById("slots-wrap");
+    if (!wrap) {
+        return;
+    }
+    const data = calData[pickedDate];
+    if (!data?.slots?.length) {
+        wrap.innerHTML = "";
+        return;
+    }
+    const [, month, day] = pickedDate.split("-");
+    wrap.innerHTML = `<div class="slots-area">
+      <div class="slots-label">Available times · ${MONTH_NAMES[Number(month) - 1]} ${Number(day)}</div>
+      <div class="slots-grid" id="slots-grid"></div>
+    </div>`;
+    const grid = document.getElementById("slots-grid");
+    data.slots.forEach((slot) => {
+        const element = document.createElement("div");
+        element.className = `slot${pickedSlot === slot ? " picked" : ""}`;
+        element.textContent = slot;
+        element.onclick = () => {
+            pickedSlot = slot;
+            setHiddenFields(pickedDate, slot);
+            renderSlots();
+            updateConfirm();
+        };
+        grid.appendChild(element);
+    });
+}
+
+function updateConfirm() {
+    const button = document.getElementById("conf-btn");
+    if (!button) {
+        return;
+    }
+    if (pickedDate && pickedSlot) {
+        const [, month, day] = pickedDate.split("-");
+        button.disabled = false;
+        button.textContent = `Confirm — ${MONTH_NAMES[Number(month) - 1]} ${Number(day)} at ${pickedSlot}`;
+    } else if (pickedDate) {
+        button.disabled = true;
+        button.textContent = "Select a time slot to confirm";
+    } else {
+        button.disabled = true;
+        button.textContent = "Select a date and time to confirm";
+    }
+}
+
+function updateBookingSubmitState() {
+    updateConfirm();
+}
+
+function confirmBooking() {
+    if (!pickedDate || !pickedSlot || !bookingForm) {
+        return;
+    }
+    const button = document.getElementById("conf-btn");
+    if (button) {
+        button.disabled = true;
+        button.textContent = "Confirming...";
+    }
+    bookingForm.requestSubmit();
+}
+
+function navigateMonth(delta) {
+    viewMonth += delta;
+    if (viewMonth > 11) {
+        viewMonth = 0;
+        viewYear += 1;
+    }
+    if (viewMonth < 0) {
+        viewMonth = 11;
+        viewYear -= 1;
+    }
+    pickedDate = null;
+    pickedSlot = null;
+    setHiddenFields(null, null);
+    fetchAvailability(viewYear, viewMonth);
 }
 
 function showBookingModal() {
